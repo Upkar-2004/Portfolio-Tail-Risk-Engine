@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# C++ and CMake
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Downloaded and generated data
+data/raw/
+data/interim/
+data/processed/
+
+# Generated reports
+reports/figures/
+reports/tables/
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
