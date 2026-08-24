@@ -1,7 +1,5 @@
 # Methodology
 
-# Methodology
-
 ## 1. Purpose
 
 This document records the mathematical definitions, timing conventions, portfolio assumptions, model specifications, and evaluation rules used by the Portfolio Tail-Risk Engine.
@@ -18,15 +16,15 @@ The primary risk horizon is one trading day. All models will ultimately be compa
 
 The project will use adjusted daily closing-price information according to the policy in `docs/data-sources.md`.
 
-Let \(P^{\mathrm{adj}}_{i,t}\) denote the adjusted closing price of asset \(i\) for trading session \(t\). Its one-day simple return is
+Let $P^{\mathrm{adj}}_{i,t}$ denote the adjusted closing price of asset $i$ for trading session $t$. Its one-day simple return is
 
-$$
+```math
 R_{i,t}
 =
 \frac{P^{\mathrm{adj}}_{i,t}}
      {P^{\mathrm{adj}}_{i,t-1}}
 -1.
-$$
+```
 
 A positive return represents an increase in economic value, while a negative return represents a decrease.
 
@@ -36,20 +34,20 @@ The two prices must correspond to consecutive valid trading sessions. If either 
 
 Simple returns will be the primary convention because they combine directly across assets in a linear portfolio.
 
-Let \(w_{i,t-1}\) denote the weight of asset \(i\) established before the return for session \(t\) is realized. The portfolio return is
+Let $w_{i,t-1}$ denote the weight of asset $i$ established before the return for session $t$ is realized. The portfolio return is
 
-$$
+```math
 R_{p,t}
 =
 \sum_{i=1}^{N}
 w_{i,t-1}R_{i,t}.
-$$
+```
 
-The use of \(t-1\) weights prevents the calculation from using portfolio positions chosen after observing the session-\(t\) returns.
+The use of $t-1$ weights prevents the calculation from using portfolio positions chosen after observing the session-$t$ returns.
 
 Logarithmic returns are defined by
 
-$$
+```math
 r_{i,t}
 =
 \ln\left(
@@ -58,33 +56,33 @@ r_{i,t}
 \right)
 =
 \ln(1+R_{i,t}).
-$$
+```
 
 Log returns add across consecutive time periods, which can be useful for exploratory analysis. However, weighted asset log returns do not directly equal the return of a rebalanced linear portfolio. Log returns will therefore not be the primary convention for portfolio P&L, VaR, or Expected Shortfall.
 
 ## 4. Portfolio P&L and loss
 
-Let \(V_{t-1}\) denote the portfolio value immediately before the session-\(t\) return is realized.
+Let $V_{t-1}$ denote the portfolio value immediately before the session-$t$ return is realized.
 
 The one-day portfolio profit and loss is
 
-$$
+```math
 \mathrm{PnL}_t
 =
 V_{t-1}R_{p,t}.
-$$
+```
 
 P&L is positive for a gain and negative for a loss.
 
 Portfolio loss is defined as the negative of P&L:
 
-$$
+```math
 L_t
 =
 -\mathrm{PnL}_t
 =
 -V_{t-1}R_{p,t}.
-$$
+```
 
 Under this convention:
 
@@ -96,25 +94,25 @@ A portfolio return will initially be considered unavailable if any return requir
 
 ## 5. Forecast timing and information set
 
-A forecast made at the end of trading session \(t\) may use only information available by the end of that session.
+A forecast made at the end of trading session $t$ may use only information available by the end of that session.
 
 The forecast concerns the portfolio loss during the next trading session:
 
-$$
+```math
 L_{t+1}
 =
 -V_t R_{p,t+1}.
-$$
+```
 
 The timing sequence is:
 
-1. Observe market data available through the end of session \(t\).
-2. Estimate the model using only permitted data through session \(t\).
-3. Produce VaR and Expected Shortfall forecasts for session \(t+1\).
-4. Observe the realized portfolio loss \(L_{t+1}\).
+1. Observe market data available through the end of session $t$.
+2. Estimate the model using only permitted data through session $t$.
+3. Produce VaR and Expected Shortfall forecasts for session $t+1$.
+4. Observe the realized portfolio loss $L_{t+1}$.
 5. Compare the forecast with the realized loss.
 
-Information from session \(t+1\) or later must not influence the forecast produced at time \(t\). This restriction applies to return calculation, covariance estimation, volatility estimation, model fitting, and portfolio weights.
+Information from session $t+1$ or later must not influence the forecast produced at time $t$. This restriction applies to return calculation, covariance estimation, volatility estimation, model fitting, and portfolio weights.
 
 ## 6. Planned model comparison
 
