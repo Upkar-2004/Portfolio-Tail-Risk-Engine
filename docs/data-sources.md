@@ -285,3 +285,64 @@ Expansion will begin only after:
 4. the rolling backtest is operational;
 5. covariance and simulation diagnostics have been reviewed; and
 6. baseline results can be reproduced from recorded configuration.
+
+
+### Company-selection rule
+
+The baseline portfolio will contain one eligible company from each of the 11 sectors listed above. Company selection will be completed and recorded before the VaR and Expected Shortfall backtests are examined.
+
+An eligible company must:
+
+- be a US-listed common stock;
+- be quoted in US dollars;
+- be classified as large-cap on the recorded selection date;
+- have sufficient daily price history for the complete study period;
+- have actively traded shares and usable daily observations; and
+- not be an ETF, mutual fund, ADR, preferred share, or recent IPO.
+
+Within each sector, eligible companies will initially be ranked by market capitalization on the recorded selection date. The highest-ranked company with sufficient historical coverage will be selected. If a company is excluded, the reason and the next selected company will be recorded.
+
+The selection rule uses information available at the project-selection date rather than reconstructing the investable universe available at the historical backtest start. This introduces survivorship and selection bias. Accordingly, results will be interpreted as conditional on the fixed baseline portfolio and will not be generalized to all historical equities.
+
+Once selected, a company will not be replaced because of its return distribution, VaR exceedances, Expected Shortfall results, or the relative performance of any model.
+
+
+
+## 11. Historical sample period
+
+The initial requested data period will begin on `2010-01-01` and end on `2026-01-01`. Under the documented yfinance date convention, the start boundary is inclusive and the end boundary is exclusive. The requested data therefore covers available trading sessions from the beginning of 2010 through the end of 2025.
+
+The final usable dates may differ from the requested boundaries because `2010-01-01` and other calendar dates may not be trading sessions. The actual first and last observations returned for every company will be recorded during validation.
+
+This period is intended to include several calm and stressed market environments while providing enough observations for rolling model estimation and out-of-sample tail-risk evaluation. The period includes substantially different volatility regimes, which is important for comparing a rolling covariance model with models that respond differently to changing volatility.
+
+The complete data period is not the same as the evaluation period. The earliest observations will be required to initialize each model’s estimation window. No VaR or Expected Shortfall forecast will be evaluated until every model has the historical information required to produce a valid one-day forecast.
+
+The three models will use the same final evaluation dates. If one model requires a longer initialization period, the comparison period will begin only when all models can produce valid forecasts. This prevents a model from being evaluated over an easier or more favourable period than another model.
+
+The exact estimation-window length and first forecast date remain methodology decisions. They will be fixed before model results are examined.
+
+The sample period may later be extended as a separate robustness study. Any extension will preserve the original baseline results and will not silently replace the predefined baseline period.
+
+
+
+### Baseline company selection
+
+The baseline company selection was recorded on `2026-08-24`.
+
+| Sector | Company | Retrieval ticker |
+|---|---|---|
+| Communication services | Alphabet Class A | `GOOGL` |
+| Consumer discretionary | Amazon | `AMZN` |
+| Consumer staples | Walmart | `WMT` |
+| Energy | Exxon Mobil | `XOM` |
+| Financials | Berkshire Hathaway Class B | `BRK-B` |
+| Healthcare | Eli Lilly | `LLY` |
+| Industrials | Caterpillar | `CAT` |
+| Information technology | NVIDIA | `NVDA` |
+| Materials | Southern Copper | `SCCO` |
+| Real estate | Welltower | `WELL` |
+| Utilities | NextEra Energy | `NEE` |
+
+These tickers are frozen provisionally, subject only to the predefined eligibility and data-coverage checks. A company will not be replaced because of its returns or model results. If a ticker fails the historical-coverage requirements, the failure and replacement decision will be recorded before backtesting begins.
+
