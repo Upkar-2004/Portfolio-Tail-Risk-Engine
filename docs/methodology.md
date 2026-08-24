@@ -43,7 +43,7 @@ R_{p,t}
 w_{i,t-1}R_{i,t}.
 ```
 
-The use of $t-1$ weights prevents the calculation from using portfolio positions chosen after observing the session-$t$ returns.
+The use of beginning-of-period weights ensures that portfolio positions are fixed before the current session's returns become known. This prevents look-ahead bias.
 
 Logarithmic returns are defined by
 
