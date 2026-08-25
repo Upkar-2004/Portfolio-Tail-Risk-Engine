@@ -1,2 +1,32 @@
-# Python project configuration will be added in a later setup task.
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
 
+[project]
+name = "portfolio-tail-risk-engine"
+version = "0.1.0"
+description = "Research engine for one-day portfolio VaR and Expected Shortfall"
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    "numpy>=2.5,<3",
+    "pandas>=3.0,<4",
+    "PyYAML>=6.0,<7",
+    "yfinance>=1.6,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.1,<10",
+]
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+
+[tool.setuptools.packages.find]
+where = ["python"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+addopts = "-ra --strict-markers"
