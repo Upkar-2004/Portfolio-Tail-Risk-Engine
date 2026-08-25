@@ -4,9 +4,9 @@ Last updated: 2026-08-25
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
-**Current phase:** Data acquisition and validation
+**Current phase:** Asset-return pipeline
 
-**Next checkpoint:** Persist a versioned raw-data snapshot with retrieval metadata and a checksum.
+**Next checkpoint:** Review and test the mathematics of one-day simple returns.
 
 ## 1. Project definition and research scope
 
@@ -40,11 +40,11 @@ This checklist tracks the research, learning, and engineering progress of the Po
 - [x] Preserve missing prices and count them by ticker.
 - [x] Create the initial `scripts/download_data.py` command-line entry point.
 - [x] Run the full baseline retrieval successfully: 4,024 sessions, 88 columns, 11 tickers, and zero missing adjusted-close prices.
-- [ ] Persist each raw download as a versioned snapshot without silent overwriting.
-- [ ] Record retrieval metadata, including timestamp, provider, package version, configuration, fields, and validation results.
-- [ ] Calculate and record a stable checksum for the raw snapshot.
-- [ ] Implement and test loading a saved raw snapshot.
-- [ ] Produce a retained validation summary for each retrieval run.
+- [x] Persist each raw download as a versioned snapshot without silent overwriting.
+- [x] Record retrieval metadata, including timestamp, provider, package version, configuration, fields, and validation results.
+- [x] Calculate and record a stable checksum for the raw snapshot.
+- [x] Implement and test loading a saved raw snapshot.
+- [x] Produce a retained validation summary for each retrieval run.
 
 ## 4. Asset-return pipeline
 

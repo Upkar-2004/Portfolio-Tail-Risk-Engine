@@ -1,10 +1,14 @@
 """Data ingestion, validation, cleaning, and alignment."""
 
 from typing import Any
+from hashlib import sha256
+from pathlib import Path
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
+import json
 
 
 _REQUIRED_FIELDS = [
@@ -171,3 +175,163 @@ def validate_market_data(
     for field in ("Adj Close", "Close"):
         prices = extract_field(market_data, field)
         validate_prices(prices)
+
+
+"""SHA-256 is a hashing algorithm that converts any amount of data into a fixed-size digital fingerprint."""
+"""The result always contains 256 bits, which is 64 hexadecimal characters."""
+
+def calculate_file_sha256(
+    path: str | Path,
+) -> str:
+    """Calculate the SHA-256 checksum of a file's contents."""
+
+    digest = sha256()
+
+    with Path(path).open("rb") as stream:
+        for chunk in iter(
+            lambda: stream.read(1024 * 1024),
+            b"",
+        ):
+            digest.update(chunk)
+
+    return digest.hexdigest()
+
+
+def save_raw_snapshot(
+    market_data: pd.DataFrame,
+    output_root: str | Path,
+    snapshot_id: str,
+) -> Path:
+    """Save market data in a new snapshot directory without overwriting."""
+
+    snapshot_directory = Path(output_root) / snapshot_id
+    snapshot_directory.mkdir(
+        parents=True,
+        exist_ok=False,
+    )
+
+    data_path = snapshot_directory / "market_data.csv"
+    market_data.to_csv(data_path)
+
+    return data_path
+
+
+def save_snapshot_metadata(
+    data_path: str | Path,
+    config: dict[str, Any],
+    market_data: pd.DataFrame,
+    retrieved_at: datetime,
+    checksum: str,
+    missing_counts: pd.Series,
+) -> Path:
+    """Save retrieval and validation metadata beside a raw snapshot."""
+
+    if retrieved_at.utcoffset() is None:
+        raise ValueError(
+            "Retrieval timestamp must include a time zone."
+        )
+
+    metadata = {
+        "schema_version": 1,
+        "experiment": config["experiment"]["name"],
+        "retrieved_at_utc": retrieved_at.astimezone(
+            timezone.utc
+        ).isoformat(),
+        "provider": config["data"]["provider"],
+        "access_library": config["data"]["access_library"],
+        "access_library_version": yf.__version__,
+        "request": {
+            "tickers": [
+                asset["ticker"]
+                for asset in config["universe"]["assets"]
+            ],
+            "start": config["data"]["start"],
+            "end_exclusive": config["data"]["end"],
+            "interval": config["data"]["interval"],
+            "download_options": config["data"]["download"],
+        },
+        "response": {
+            "rows": len(market_data),
+            "columns": len(market_data.columns),
+            "first_date": market_data.index.min().isoformat(),
+            "last_date": market_data.index.max().isoformat(),
+            "fields": sorted(
+                set(
+                    market_data.columns.get_level_values(
+                        "Price"
+                    )
+                )
+            ),
+            "tickers": sorted(
+                set(
+                    market_data.columns.get_level_values(
+                        "Ticker"
+                    )
+                )
+            ),
+        },
+        "validation": {
+            "missing_adjusted_close": {
+                str(ticker): int(count)
+                for ticker, count in missing_counts.items()
+            }
+        },
+        "files": {
+            "market_data": {
+                "name": Path(data_path).name,
+                "sha256": checksum,
+            }
+        },
+    }
+
+    metadata_path = Path(data_path).parent / "metadata.json"
+
+    with metadata_path.open(
+        "x",
+        encoding="utf-8",
+    ) as stream:
+        json.dump(
+            metadata,
+            stream,
+            indent=2,
+            sort_keys=True,
+        )
+        stream.write("\n")
+
+    return metadata_path
+
+
+
+def load_raw_snapshot(
+    snapshot_directory: str | Path,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Load a raw snapshot after verifying its recorded checksum."""
+
+    snapshot_path = Path(snapshot_directory)
+    metadata_path = snapshot_path / "metadata.json"
+
+    with metadata_path.open(
+        "r",
+        encoding="utf-8",
+    ) as stream:
+        metadata = json.load(stream)
+
+    file_metadata = metadata["files"]["market_data"]
+    data_path = snapshot_path / file_metadata["name"]
+
+    expected_checksum = file_metadata["sha256"]
+    actual_checksum = calculate_file_sha256(data_path)
+
+    if actual_checksum != expected_checksum:
+        raise ValueError(
+            "Raw market-data snapshot checksum does not match."
+        )
+
+    market_data = pd.read_csv(
+        data_path,
+        header=[0, 1],
+        index_col=0,
+        parse_dates=[0],
+    )
+
+    return market_data, metadata

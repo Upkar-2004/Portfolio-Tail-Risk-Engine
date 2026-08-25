@@ -2,8 +2,9 @@
 
 import pandas as pd
 import pytest
+import json
 
-
+from pathlib import Path
 from tailrisk.data import (
     download_market_data,
     extract_field,
@@ -13,7 +14,11 @@ from tailrisk.data import (
     validate_tickers,
     count_missing_prices,
     validate_market_data,
+    calculate_file_sha256,
+    save_raw_snapshot,
+    load_raw_snapshot,
 )
+
 
 
 def test_extract_field_returns_one_column_per_ticker() -> None:
@@ -302,3 +307,169 @@ def test_validate_market_data_accepts_valid_data() -> None:
         market_data,
         expected_tickers=["GOOGL"],
     )
+
+
+def test_calculate_file_sha256_matches_known_digest(
+    tmp_path: Path,
+) -> None:
+    """Verify that file checksums match a known SHA-256 digest."""
+
+    file_path = tmp_path / "sample.txt"
+    file_path.write_bytes(b"abc")
+
+    checksum = calculate_file_sha256(file_path)
+
+    assert checksum == (
+        "ba7816bf8f01cfea414140de5dae2223"
+        "b00361a396177a9cb410ff61f20015ad"
+    )
+
+
+
+def test_save_raw_snapshot_writes_csv_without_overwriting(
+    tmp_path: Path,
+) -> None:
+    """Verify that raw snapshots are saved without silent overwriting."""
+
+    columns = pd.MultiIndex.from_tuples(
+        [
+            ("Adj Close", "GOOGL"),
+            ("Close", "GOOGL"),
+        ],
+        names=["Price", "Ticker"],
+    )
+
+    market_data = pd.DataFrame(
+        [[100.0, 101.0]],
+        index=pd.to_datetime(["2025-01-02"]),
+        columns=columns,
+    )
+
+    data_path = save_raw_snapshot(
+        market_data,
+        output_root=tmp_path,
+        snapshot_id="test-snapshot",
+    )
+
+    assert data_path == (
+        tmp_path
+        / "test-snapshot"
+        / "market_data.csv"
+    )
+    assert data_path.exists()
+
+    with pytest.raises(FileExistsError):
+        save_raw_snapshot(
+            market_data,
+            output_root=tmp_path,
+            snapshot_id="test-snapshot",
+        )
+
+
+def test_load_raw_snapshot_reconstructs_saved_data(
+    tmp_path: Path,
+) -> None:
+    """Verify that a saved raw snapshot can be loaded and verified."""
+
+    columns = pd.MultiIndex.from_tuples(
+        [
+            ("Adj Close", "GOOGL"),
+            ("Close", "GOOGL"),
+        ],
+        names=["Price", "Ticker"],
+    )
+
+    market_data = pd.DataFrame(
+        [[100.0, 101.0]],
+        index=pd.DatetimeIndex(
+            ["2025-01-02"],
+            name="Date",
+        ),
+        columns=columns,
+    )
+
+    data_path = save_raw_snapshot(
+        market_data,
+        output_root=tmp_path,
+        snapshot_id="test-snapshot",
+    )
+    checksum = calculate_file_sha256(data_path)
+
+    metadata = {
+        "files": {
+            "market_data": {
+                "name": data_path.name,
+                "sha256": checksum,
+            }
+        }
+    }
+
+    metadata_path = data_path.parent / "metadata.json"
+    metadata_path.write_text(
+        json.dumps(metadata),
+        encoding="utf-8",
+    )
+
+    loaded_data, loaded_metadata = load_raw_snapshot(
+        data_path.parent
+    )
+
+    pd.testing.assert_frame_equal(
+        loaded_data,
+        market_data,
+    )
+    assert loaded_metadata == metadata
+
+
+
+def test_load_raw_snapshot_rejects_modified_data(
+    tmp_path: Path,
+) -> None:
+    """Verify that checksum validation detects a modified raw snapshot."""
+
+    columns = pd.MultiIndex.from_tuples(
+        [
+            ("Adj Close", "GOOGL"),
+            ("Close", "GOOGL"),
+        ],
+        names=["Price", "Ticker"],
+    )
+
+    market_data = pd.DataFrame(
+        [[100.0, 101.0]],
+        index=pd.DatetimeIndex(
+            ["2025-01-02"],
+            name="Date",
+        ),
+        columns=columns,
+    )
+
+    data_path = save_raw_snapshot(
+        market_data,
+        output_root=tmp_path,
+        snapshot_id="modified-snapshot",
+    )
+    original_checksum = calculate_file_sha256(data_path)
+
+    metadata = {
+        "files": {
+            "market_data": {
+                "name": data_path.name,
+                "sha256": original_checksum,
+            }
+        }
+    }
+
+    metadata_path = data_path.parent / "metadata.json"
+    metadata_path.write_text(
+        json.dumps(metadata),
+        encoding="utf-8",
+    )
+
+    data_path.write_text(
+        "modified contents",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="checksum"):
+        load_raw_snapshot(data_path.parent)
