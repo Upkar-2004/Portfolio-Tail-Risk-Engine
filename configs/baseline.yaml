@@ -1,2 +1,68 @@
-# Baseline experiment parameters will be defined later.
+experiment:
+  name: "baseline_11_asset"
+  selection_date: "2026-08-24"
 
+universe:
+  base_currency: "USD"
+
+  assets:
+    - ticker: "GOOGL"
+      company: "Alphabet Class A"
+      sector: "communication_services"
+
+    - ticker: "AMZN"
+      company: "Amazon"
+      sector: "consumer_discretionary"
+
+    - ticker: "WMT"
+      company: "Walmart"
+      sector: "consumer_staples"
+
+    - ticker: "XOM"
+      company: "Exxon Mobil"
+      sector: "energy"
+
+    - ticker: "BRK-B"
+      company: "Berkshire Hathaway Class B"
+      sector: "financials"
+
+    - ticker: "LLY"
+      company: "Eli Lilly"
+      sector: "healthcare"
+
+    - ticker: "CAT"
+      company: "Caterpillar"
+      sector: "industrials"
+
+    - ticker: "NVDA"
+      company: "NVIDIA"
+      sector: "information_technology"
+
+    - ticker: "SCCO"
+      company: "Southern Copper"
+      sector: "materials"
+
+    - ticker: "WELL"
+      company: "Welltower"
+      sector: "real_estate"
+
+    - ticker: "NEE"
+      company: "NextEra Energy"
+      sector: "utilities"
+
+data:
+  provider: "yahoo_finance"
+  access_library: "yfinance"
+  start: "2010-01-01"
+  end: "2026-01-01"  # Exclusive
+  interval: "1d"
+
+  download:
+    auto_adjust: false
+    actions: true
+    keepna: true
+    repair: false
+    prepost: false
+    rounding: false
+    threads: false
+    progress: false
