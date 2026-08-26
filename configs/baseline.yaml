@@ -66,3 +66,6 @@ data:
     rounding: false
     threads: false
     progress: false
+
+  validation:
+    large_return_threshold: 0.20
