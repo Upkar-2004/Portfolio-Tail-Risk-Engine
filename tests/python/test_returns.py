@@ -1,10 +1,14 @@
 """Tests for asset and portfolio return calculations."""
 
+from pathlib import Path
+
 import pandas as pd
+import pytest
 
 from tailrisk.returns import (
     calculate_simple_returns,
     flag_large_returns,
+    save_processed_returns,
 )
 
 
@@ -120,3 +124,74 @@ def test_flag_large_returns_uses_absolute_values() -> None:
         flags,
         expected,
     )
+
+
+def test_save_processed_returns_creates_csv(
+    tmp_path: Path,
+) -> None:
+    """Verify that processed returns are saved in a snapshot directory."""
+
+    returns = pd.DataFrame(
+        {
+            "GOOGL": [0.05, -0.02],
+            "AMZN": [0.03, 0.01],
+        },
+        index=pd.to_datetime(
+            [
+                "2025-01-03",
+                "2025-01-06",
+            ]
+        ),
+    )
+    returns.index.name = "Date"
+
+    data_path = save_processed_returns(
+        returns=returns,
+        output_root=tmp_path,
+        snapshot_id="test_snapshot",
+    )
+
+    expected_path = (
+        tmp_path
+        / "test_snapshot"
+        / "asset_returns.csv"
+    )
+
+    assert data_path == expected_path
+    assert data_path.is_file()
+
+    saved_returns = pd.read_csv(
+        data_path,
+        index_col="Date",
+        parse_dates=["Date"],
+    )
+
+    pd.testing.assert_frame_equal(
+        saved_returns,
+        returns,
+    )
+
+
+def test_save_processed_returns_rejects_existing_snapshot(
+    tmp_path: Path,
+) -> None:
+    """Verify that an existing processed snapshot is not overwritten."""
+
+    returns = pd.DataFrame(
+        {"GOOGL": [0.05]},
+        index=pd.to_datetime(["2025-01-03"]),
+    )
+    returns.index.name = "Date"
+
+    save_processed_returns(
+        returns=returns,
+        output_root=tmp_path,
+        snapshot_id="existing_snapshot",
+    )
+
+    with pytest.raises(FileExistsError):
+        save_processed_returns(
+            returns=returns,
+            output_root=tmp_path,
+            snapshot_id="existing_snapshot",
+        )

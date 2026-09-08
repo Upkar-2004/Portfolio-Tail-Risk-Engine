@@ -1,5 +1,7 @@
 """Asset and portfolio return calculations."""
 
+from pathlib import Path
+
 import pandas as pd
 
 
@@ -28,3 +30,27 @@ def flag_large_returns(
         returns.abs().ge(threshold)
         & returns.notna()
     )
+
+
+def save_processed_returns(
+    returns: pd.DataFrame,
+    output_root: str | Path,
+    snapshot_id: str,
+) -> Path:
+    """Save asset returns in a new processed-data snapshot."""
+
+    snapshot_directory = (
+        Path(output_root) / snapshot_id
+    )
+    snapshot_directory.mkdir(
+        parents=True,
+        exist_ok=False,
+    )
+
+    data_path = (
+        snapshot_directory
+        / "asset_returns.csv"
+    )
+    returns.to_csv(data_path)
+
+    return data_path
