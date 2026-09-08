@@ -1,5 +1,7 @@
 """Tests for asset and portfolio return calculations."""
 
+from datetime import datetime, timezone
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -8,6 +10,7 @@ import pytest
 from tailrisk.returns import (
     calculate_simple_returns,
     flag_large_returns,
+    save_processed_metadata,
     save_processed_returns,
 )
 
@@ -195,3 +198,72 @@ def test_save_processed_returns_rejects_existing_snapshot(
             output_root=tmp_path,
             snapshot_id="existing_snapshot",
         )
+
+
+def test_save_processed_metadata_records_lineage_and_flags(
+    tmp_path: Path,
+) -> None:
+    """Verify that processed metadata records its source and validation."""
+
+    returns = pd.DataFrame(
+        {
+            "GOOGL": [0.05, -0.25],
+            "AMZN": [0.30, -0.10],
+        },
+        index=pd.to_datetime(["2025-01-03", "2025-01-06"]),
+    )
+    returns.index.name = "Date"
+    flags = flag_large_returns(returns, threshold=0.20)
+
+    data_path = tmp_path / "asset_returns.csv"
+    returns.to_csv(data_path)
+    source_metadata = {
+        "files": {
+            "market_data": {
+                "name": "market_data.csv",
+                "sha256": "raw-checksum",
+            }
+        }
+    }
+
+    metadata_path = save_processed_metadata(
+        data_path=data_path,
+        source_snapshot_id="raw_snapshot",
+        source_metadata=source_metadata,
+        returns=returns,
+        flags=flags,
+        threshold=0.20,
+        processed_at=datetime(
+            2025, 1, 7, 12, 0, tzinfo=timezone.utc
+        ),
+        checksum="processed-checksum",
+        flagged_return_decision="retain",
+    )
+
+    with metadata_path.open(encoding="utf-8") as stream:
+        metadata = json.load(stream)
+
+    assert metadata["source"] == {
+        "snapshot_id": "raw_snapshot",
+        "market_data_file": "market_data.csv",
+        "market_data_sha256": "raw-checksum",
+    }
+    assert metadata["calculation"]["implicit_fill"] is False
+    assert metadata["output"]["rows"] == 2
+    assert metadata["output"]["file"]["sha256"] == (
+        "processed-checksum"
+    )
+    assert metadata["validation"]["flagged_returns"] == [
+        {
+            "date": "2025-01-03",
+            "ticker": "AMZN",
+            "return": 0.30,
+            "decision": "retain",
+        },
+        {
+            "date": "2025-01-06",
+            "ticker": "GOOGL",
+            "return": -0.25,
+            "decision": "retain",
+        },
+    ]
