@@ -3,6 +3,7 @@
 import pandas as pd
 import pytest
 
+import tailrisk.portfolio as portfolio
 from tailrisk.portfolio import (
     calculate_portfolio_step,
     create_equal_weights,
@@ -155,3 +156,69 @@ def test_calculate_portfolio_step_aligns_assets_by_ticker() -> None:
     )
 
     assert result.portfolio_return == pytest.approx(-0.02)
+
+
+def test_run_portfolio_path_rebalances_after_month_end() -> None:
+    """Drift during January, then restore targets before February."""
+
+    asset_returns = pd.DataFrame(
+        {
+            "A": [0.10, 0.00, 0.00],
+            "B": [0.00, 0.00, 0.10],
+        },
+        index=pd.to_datetime(
+            [
+                "2025-01-30",
+                "2025-01-31",
+                "2025-02-03",
+            ]
+        ),
+    )
+    target_weights = pd.Series(
+        [0.50, 0.50],
+        index=["A", "B"],
+        name="weight",
+    )
+
+    result = portfolio.run_portfolio_path(
+        asset_returns=asset_returns,
+        initial_value=1_000.0,
+        target_weights=target_weights,
+        rebalancing_frequency="monthly",
+    )
+
+    january_30 = pd.Timestamp("2025-01-30")
+    january_31 = pd.Timestamp("2025-01-31")
+    february_3 = pd.Timestamp("2025-02-03")
+
+    # A's January gain makes it overweight before the rebalance.
+    assert result.pre_rebalance_weights.loc[january_31, "A"] == pytest.approx(
+        550.0 / 1_050.0
+    )
+    assert result.daily.loc[january_30, "portfolio_return"] == pytest.approx(
+        0.05
+    )
+    assert not bool(
+        result.daily.loc[january_30, "rebalanced_after_close"]
+    )
+
+    # The final January session is rebalanced after its return is applied.
+    assert bool(
+        result.daily.loc[january_31, "rebalanced_after_close"]
+    )
+    assert result.daily.loc[january_31, "turnover"] == pytest.approx(
+        1.0 / 42.0
+    )
+
+    # February therefore starts at 50/50 and earns a 5% portfolio return.
+    assert result.beginning_weights.loc[february_3, "A"] == pytest.approx(0.50)
+    assert result.beginning_weights.loc[february_3, "B"] == pytest.approx(0.50)
+    assert result.daily.loc[february_3, "beginning_value"] == pytest.approx(
+        1_050.0
+    )
+    assert result.daily.loc[february_3, "portfolio_return"] == pytest.approx(
+        0.05
+    )
+    assert result.daily.loc[february_3, "ending_value"] == pytest.approx(
+        1_102.50
+    )

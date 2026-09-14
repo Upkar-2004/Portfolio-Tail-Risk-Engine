@@ -18,6 +18,15 @@ class PortfolioStep:
     ending_cash_weight: float
 
 
+@dataclass(frozen=True)
+class PortfolioPath:
+    """Daily accounting history for a portfolio over multiple sessions."""
+
+    daily: pd.DataFrame
+    beginning_weights: pd.DataFrame
+    pre_rebalance_weights: pd.DataFrame
+
+
 def create_equal_weights(
     tickers: list[str],
     cash_weight: float,
@@ -161,4 +170,172 @@ def calculate_portfolio_step(
         ending_value=ending_value,
         ending_weights=ending_weights,
         ending_cash_weight=ending_cash_weight,
+    )
+
+
+def run_portfolio_path(
+    asset_returns: pd.DataFrame,
+    initial_value: float,
+    target_weights: pd.Series,
+    rebalancing_frequency: str,
+) -> PortfolioPath:
+    """Apply asset returns through time and rebalance on schedule."""
+
+    if asset_returns.empty:
+        raise ValueError(
+            "Portfolio asset_returns must not be empty."
+        )
+
+    if not isinstance(asset_returns.index, pd.DatetimeIndex):
+        raise ValueError(
+            "Portfolio asset_returns must use a DatetimeIndex."
+        )
+
+    if asset_returns.index.has_duplicates:
+        raise ValueError(
+            "Portfolio asset_returns dates must be unique."
+        )
+
+    if not asset_returns.index.is_monotonic_increasing:
+        raise ValueError(
+            "Portfolio asset_returns dates must be sorted."
+        )
+
+    if asset_returns.columns.has_duplicates:
+        raise ValueError(
+            "Portfolio asset_returns must have unique ticker columns."
+        )
+
+    if target_weights.index.has_duplicates:
+        raise ValueError(
+            "Portfolio target_weights must have unique tickers."
+        )
+
+    if set(asset_returns.columns) != set(target_weights.index):
+        raise ValueError(
+            "Portfolio target_weights and asset_returns "
+            "must have the same tickers."
+        )
+
+    if rebalancing_frequency not in {"daily", "monthly"}:
+        raise ValueError(
+            "Portfolio rebalancing_frequency must be daily or monthly."
+        )
+
+    # The return columns define the canonical ticker order used throughout
+    # the simulation and in every output weight table.
+    aligned_targets = target_weights.reindex(asset_returns.columns).rename(
+        "weight"
+    )
+
+    if not np.isfinite(aligned_targets.to_numpy()).all():
+        raise ValueError(
+            "Portfolio target_weights must be finite numbers."
+        )
+
+    if (aligned_targets < 0.0).any():
+        raise ValueError(
+            "Portfolio target_weights must be non-negative."
+        )
+
+    target_asset_weight = float(aligned_targets.sum())
+
+    if (
+        target_asset_weight > 1.0
+        and not np.isclose(target_asset_weight, 1.0)
+    ):
+        raise ValueError(
+            "Portfolio target_weights cannot sum to more than one."
+        )
+
+    # calculate_portfolio_step performs the detailed value, weight, and
+    # return validation for the initial state and for each daily row.
+    current_value = initial_value
+    current_weights = aligned_targets.copy()
+    target_cash_weight = max(0.0, 1.0 - target_asset_weight)
+
+    daily_rows: list[dict[str, float | bool]] = []
+    beginning_weight_rows: list[pd.Series] = []
+    pre_rebalance_weight_rows: list[pd.Series] = []
+
+    dates = asset_returns.index
+
+    for position, (date, daily_returns) in enumerate(
+        asset_returns.iterrows()
+    ):
+        # These weights were known before this session's returns occurred.
+        beginning_weight_rows.append(current_weights.copy())
+
+        step = calculate_portfolio_step(
+            beginning_value=current_value,
+            beginning_weights=current_weights,
+            asset_returns=daily_returns,
+        )
+        pre_rebalance_weight_rows.append(step.ending_weights.copy())
+
+        has_next_session = position + 1 < len(dates)
+        is_month_end = (
+            has_next_session
+            and date.to_period("M")
+            != dates[position + 1].to_period("M")
+        )
+        rebalance_after_close = has_next_session and (
+            rebalancing_frequency == "daily"
+            or (
+                rebalancing_frequency == "monthly"
+                and is_month_end
+            )
+        )
+
+        if rebalance_after_close:
+            # One-way turnover measures the fraction of portfolio value moved
+            # between assets (and cash) to restore the target allocation.
+            turnover = 0.5 * (
+                float(
+                    (
+                        aligned_targets
+                        - step.ending_weights
+                    ).abs().sum()
+                )
+                + abs(
+                    target_cash_weight
+                    - step.ending_cash_weight
+                )
+            )
+            next_weights = aligned_targets.copy()
+        else:
+            turnover = 0.0
+            next_weights = step.ending_weights.copy()
+
+        daily_rows.append(
+            {
+                "beginning_value": current_value,
+                "portfolio_return": step.portfolio_return,
+                "pnl": step.pnl,
+                "loss": step.loss,
+                "ending_value": step.ending_value,
+                "rebalanced_after_close": rebalance_after_close,
+                "turnover": turnover,
+            }
+        )
+
+        # With zero transaction costs, rebalancing redistributes wealth but
+        # does not change total value. The ending state becomes tomorrow's
+        # beginning state.
+        current_value = step.ending_value
+        current_weights = next_weights
+
+    return PortfolioPath(
+        daily=pd.DataFrame(
+            daily_rows,
+            index=dates,
+        ),
+        beginning_weights=pd.DataFrame(
+            beginning_weight_rows,
+            index=dates,
+        ),
+        pre_rebalance_weights=pd.DataFrame(
+            pre_rebalance_weight_rows,
+            index=dates,
+        ),
     )
