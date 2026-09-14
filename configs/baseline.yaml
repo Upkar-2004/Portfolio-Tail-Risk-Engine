@@ -69,3 +69,11 @@ data:
 
   validation:
     large_return_threshold: 0.20
+
+portfolio:
+  weighting_method: "equal"
+  rebalancing_frequency: "monthly"
+  long_only: true
+  cash_weight: 0.0
+  initial_value: 1000000.0
+  transaction_cost_bps: 0.0

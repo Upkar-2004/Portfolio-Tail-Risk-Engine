@@ -60,6 +60,20 @@ r_{i,t}
 
 Log returns add across consecutive time periods, which can be useful for exploratory analysis. However, weighted asset log returns do not directly equal the return of a rebalanced linear portfolio. Log returns will therefore not be the primary convention for portfolio P&L, VaR, or Expected Shortfall.
 
+### 3.1 Baseline portfolio specification
+
+The baseline experiment uses a fully invested, long-only, equal-weight portfolio containing all 11 assets. Each asset has the target weight
+
+```math
+w_i = \frac{1}{11}.
+```
+
+The portfolio is rebalanced to equal target weights after the final trading session of each month. The resulting weights apply beginning with the following trading session. Between rebalancing dates, asset quantities remain fixed and portfolio weights drift as asset prices change.
+
+The baseline portfolio has an initial value of USD 1,000,000 and no cash allocation. Transaction costs are initially assumed to be zero. Portfolio turnover will be retained so transaction costs can be added as a robustness extension.
+
+Monthly rebalancing is intended to provide realistic portfolio dynamics while keeping the portfolio rule independent of the risk models being compared.
+
 ## 4. Portfolio P&L and loss
 
 Let $V_{t-1}$ denote the portfolio value immediately before the session-$t$ return is realized.
