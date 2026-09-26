@@ -6,6 +6,9 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import tailrisk.returns as returns_module
+from tailrisk.data import calculate_file_sha256
+
 
 from tailrisk.returns import (
     calculate_simple_returns,
@@ -267,3 +270,94 @@ def test_save_processed_metadata_records_lineage_and_flags(
             "decision": "retain",
         },
     ]
+
+
+def test_load_processed_returns_verifies_checksum(
+    tmp_path: Path,
+) -> None:
+    """Verify that a valid processed-return snapshot can be loaded."""
+
+    snapshot_directory = tmp_path / "processed_snapshot"
+    snapshot_directory.mkdir()
+
+    expected_returns = pd.DataFrame(
+        {
+            "GOOGL": [0.05, -0.02],
+            "AMZN": [0.03, 0.01],
+        },
+        index=pd.to_datetime(
+            [
+                "2025-01-03",
+                "2025-01-06",
+            ]
+        ),
+    )
+    expected_returns.index.name = "Date"
+
+    data_path = snapshot_directory / "asset_returns.csv"
+    expected_returns.to_csv(data_path)
+
+    metadata = {
+        "output": {
+            "file": {
+                "name": data_path.name,
+                "sha256": calculate_file_sha256(data_path),
+            }
+        }
+    }
+
+    metadata_path = snapshot_directory / "metadata.json"
+    metadata_path.write_text(
+        json.dumps(metadata),
+        encoding="utf-8",
+    )
+
+    loaded_returns, loaded_metadata = (
+        returns_module.load_processed_returns(
+            snapshot_directory
+        )
+    )
+
+    pd.testing.assert_frame_equal(
+        loaded_returns,
+        expected_returns,
+    )
+    assert loaded_metadata == metadata
+
+
+def test_load_processed_returns_rejects_checksum_mismatch(
+    tmp_path: Path,
+) -> None:
+    """Verify that modified return data is rejected."""
+
+    snapshot_directory = tmp_path / "processed_snapshot"
+    snapshot_directory.mkdir()
+
+    data_path = snapshot_directory / "asset_returns.csv"
+    data_path.write_text(
+        "Date,GOOGL\n2025-01-03,0.05\n",
+        encoding="utf-8",
+    )
+
+    metadata = {
+        "output": {
+            "file": {
+                "name": data_path.name,
+                "sha256": "incorrect-checksum",
+            }
+        }
+    }
+
+    metadata_path = snapshot_directory / "metadata.json"
+    metadata_path.write_text(
+        json.dumps(metadata),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="checksum",
+    ):
+        returns_module.load_processed_returns(
+            snapshot_directory
+        )

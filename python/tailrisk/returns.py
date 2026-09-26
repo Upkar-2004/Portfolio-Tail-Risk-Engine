@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 from typing import Any
+from tailrisk.data import calculate_file_sha256
 
 import pandas as pd
 
@@ -136,3 +137,37 @@ def save_processed_metadata(
         stream.write("\n")
 
     return metadata_path
+
+
+def load_processed_returns(
+    snapshot_directory: str | Path,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Load processed asset returns after verifying their checksum."""
+
+    snapshot_path = Path(snapshot_directory)
+    metadata_path = snapshot_path / "metadata.json"
+
+    with metadata_path.open(
+        "r",
+        encoding="utf-8",
+    ) as stream:
+        metadata = json.load(stream)
+
+    file_metadata = metadata["output"]["file"]
+    data_path = snapshot_path / file_metadata["name"]
+
+    expected_checksum = file_metadata["sha256"]
+    actual_checksum = calculate_file_sha256(data_path)
+
+    if actual_checksum != expected_checksum:
+        raise ValueError(
+            "Processed asset-return snapshot checksum does not match."
+        )
+
+    asset_returns = pd.read_csv(
+        data_path,
+        index_col=0,
+        parse_dates=[0],
+    )
+
+    return asset_returns, metadata
