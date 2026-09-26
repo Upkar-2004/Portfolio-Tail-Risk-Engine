@@ -1,6 +1,7 @@
 """Portfolio construction and accounting."""
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -16,6 +17,15 @@ class PortfolioStep:
     ending_value: float
     ending_weights: pd.Series
     ending_cash_weight: float
+
+
+@dataclass(frozen=True)
+class PortfolioSnapshotFiles:
+    """Paths belonging to a saved portfolio snapshot."""
+
+    daily: Path
+    beginning_weights: Path
+    pre_rebalance_weights: Path
 
 
 @dataclass(frozen=True)
@@ -339,3 +349,86 @@ def run_portfolio_path(
             index=dates,
         ),
     )
+
+
+def save_portfolio_path(
+    result: PortfolioPath,
+    output_root: str | Path,
+    snapshot_id: str,
+) -> PortfolioSnapshotFiles:
+    """Save a portfolio path in a new snapshot directory."""
+
+    if result.daily.empty:
+        raise ValueError(
+            "Portfolio path must contain at least one session."
+        )
+
+    indexes_match = (
+        result.daily.index.equals(
+            result.beginning_weights.index
+        )
+        and result.daily.index.equals(
+            result.pre_rebalance_weights.index
+        )
+    )
+
+    if not indexes_match:
+        raise ValueError(
+            "Portfolio path tables must use the same dates."
+        )
+
+    weight_columns_match = (
+        result.beginning_weights.columns.equals(
+            result.pre_rebalance_weights.columns
+        )
+    )
+
+    if not weight_columns_match:
+        raise ValueError(
+            "Portfolio weight tables must use the same tickers."
+        )
+
+    snapshot_directory = (
+        Path(output_root) / snapshot_id
+    )
+    snapshot_directory.mkdir(
+        parents=True,
+        exist_ok=False,
+    )
+
+    files = PortfolioSnapshotFiles(
+        daily=(
+            snapshot_directory
+            / "portfolio_daily.csv"
+        ),
+        beginning_weights=(
+            snapshot_directory
+            / "beginning_weights.csv"
+        ),
+        pre_rebalance_weights=(
+            snapshot_directory
+            / "pre_rebalance_weights.csv"
+        ),
+    )
+
+    daily = result.daily.copy()
+    beginning_weights = (
+        result.beginning_weights.copy()
+    )
+    pre_rebalance_weights = (
+        result.pre_rebalance_weights.copy()
+    )
+
+    daily.index.name = "Date"
+    beginning_weights.index.name = "Date"
+    pre_rebalance_weights.index.name = "Date"
+
+    daily.to_csv(files.daily)
+    beginning_weights.to_csv(
+        files.beginning_weights
+    )
+    pre_rebalance_weights.to_csv(
+        files.pre_rebalance_weights
+    )
+
+    return files

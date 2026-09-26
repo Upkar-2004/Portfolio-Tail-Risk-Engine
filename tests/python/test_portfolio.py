@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 import tailrisk.portfolio as portfolio
+from pathlib import Path
 from tailrisk.portfolio import (
     calculate_portfolio_step,
     create_equal_weights,
@@ -221,4 +222,96 @@ def test_run_portfolio_path_rebalances_after_month_end() -> None:
     )
     assert result.daily.loc[february_3, "ending_value"] == pytest.approx(
         1_102.50
+    )
+
+
+
+def test_save_portfolio_path_creates_csv_files(
+    tmp_path: Path,
+) -> None:
+    """Verify that all portfolio-path tables are saved together."""
+
+    asset_returns = pd.DataFrame(
+        {
+            "A": [0.10, 0.00],
+            "B": [0.00, 0.10],
+        },
+        index=pd.to_datetime(
+            [
+                "2025-01-30",
+                "2025-01-31",
+            ]
+        ),
+    )
+    target_weights = pd.Series(
+        [0.50, 0.50],
+        index=["A", "B"],
+        name="weight",
+    )
+
+    result = portfolio.run_portfolio_path(
+        asset_returns=asset_returns,
+        initial_value=1_000.0,
+        target_weights=target_weights,
+        rebalancing_frequency="monthly",
+    )
+
+    files = portfolio.save_portfolio_path(
+        result=result,
+        output_root=tmp_path,
+        snapshot_id="test_portfolio",
+    )
+
+    expected_directory = tmp_path / "test_portfolio"
+
+    assert files.daily == (
+        expected_directory / "portfolio_daily.csv"
+    )
+    assert files.beginning_weights == (
+        expected_directory / "beginning_weights.csv"
+    )
+    assert files.pre_rebalance_weights == (
+        expected_directory / "pre_rebalance_weights.csv"
+    )
+
+    saved_daily = pd.read_csv(
+        files.daily,
+        index_col="Date",
+        parse_dates=["Date"],
+    )
+    saved_beginning_weights = pd.read_csv(
+        files.beginning_weights,
+        index_col="Date",
+        parse_dates=["Date"],
+    )
+    saved_pre_rebalance_weights = pd.read_csv(
+        files.pre_rebalance_weights,
+        index_col="Date",
+        parse_dates=["Date"],
+    )
+
+    expected_daily = result.daily.copy()
+    expected_daily.index.name = "Date"
+
+    expected_beginning_weights = (
+        result.beginning_weights.copy()
+    )
+    expected_beginning_weights.index.name = "Date"
+
+    expected_pre_rebalance_weights = (
+        result.pre_rebalance_weights.copy()
+    )
+    expected_pre_rebalance_weights.index.name = "Date"
+
+    pd.testing.assert_frame_equal(
+        saved_daily,
+        expected_daily,
+    )
+    pd.testing.assert_frame_equal(
+        saved_beginning_weights,
+        expected_beginning_weights,
+    )
+    pd.testing.assert_frame_equal(
+        saved_pre_rebalance_weights,
+        expected_pre_rebalance_weights,
     )
