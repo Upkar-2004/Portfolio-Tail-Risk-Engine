@@ -2,9 +2,13 @@
 
 import pandas as pd
 import pytest
+import json
+
 
 import tailrisk.portfolio as portfolio
+from datetime import datetime, timezone
 from pathlib import Path
+from tailrisk.data import calculate_file_sha256
 from tailrisk.portfolio import (
     calculate_portfolio_step,
     create_equal_weights,
@@ -314,4 +318,118 @@ def test_save_portfolio_path_creates_csv_files(
     pd.testing.assert_frame_equal(
         saved_pre_rebalance_weights,
         expected_pre_rebalance_weights,
+    )
+
+
+
+def test_save_portfolio_metadata_records_research_lineage(
+    tmp_path: Path,
+) -> None:
+    """Verify portfolio metadata records inputs, settings, and outputs."""
+
+    asset_returns = pd.DataFrame(
+        {
+            "A": [0.10, 0.00, 0.00],
+            "B": [0.00, 0.00, 0.10],
+        },
+        index=pd.to_datetime(
+            [
+                "2025-01-30",
+                "2025-01-31",
+                "2025-02-03",
+            ]
+        ),
+    )
+    target_weights = pd.Series(
+        [0.50, 0.50],
+        index=["A", "B"],
+        name="weight",
+    )
+
+    result = portfolio.run_portfolio_path(
+        asset_returns=asset_returns,
+        initial_value=1_000.0,
+        target_weights=target_weights,
+        rebalancing_frequency="monthly",
+    )
+
+    files = portfolio.save_portfolio_path(
+        result=result,
+        output_root=tmp_path,
+        snapshot_id="test_portfolio",
+    )
+
+    source_metadata = {
+        "output": {
+            "file": {
+                "name": "asset_returns.csv",
+                "sha256": "source-return-checksum",
+            }
+        }
+    }
+
+    portfolio_config = {
+        "weighting_method": "equal",
+        "rebalancing_frequency": "monthly",
+        "long_only": True,
+        "cash_weight": 0.0,
+        "initial_value": 1_000.0,
+        "transaction_cost_bps": 0.0,
+    }
+
+    processed_at = datetime(
+        2025,
+        2,
+        4,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    metadata_path = portfolio.save_portfolio_metadata(
+        files=files,
+        source_snapshot_id="processed_returns_snapshot",
+        source_metadata=source_metadata,
+        portfolio_config=portfolio_config,
+        target_weights=target_weights,
+        result=result,
+        processed_at=processed_at,
+    )
+
+    with metadata_path.open(
+        "r",
+        encoding="utf-8",
+    ) as stream:
+        metadata = json.load(stream)
+
+    assert metadata["source"] == {
+        "snapshot_id": "processed_returns_snapshot",
+        "asset_returns_file": "asset_returns.csv",
+        "asset_returns_sha256": "source-return-checksum",
+    }
+
+    assert metadata["portfolio"]["weighting_method"] == "equal"
+    assert metadata["portfolio"]["rebalancing_frequency"] == "monthly"
+    assert metadata["portfolio"]["target_weights"] == {
+        "A": 0.50,
+        "B": 0.50,
+    }
+
+    assert metadata["output"]["rows"] == 3
+    assert metadata["output"]["first_date"] == "2025-01-30"
+    assert metadata["output"]["last_date"] == "2025-02-03"
+    assert metadata["output"]["rebalance_count"] == 1
+    assert metadata["output"]["ending_value"] == pytest.approx(
+        1_102.50
+    )
+
+    daily_file_metadata = metadata["output"]["files"][
+        "portfolio_daily"
+    ]
+
+    assert daily_file_metadata["name"] == (
+        "portfolio_daily.csv"
+    )
+    assert daily_file_metadata["sha256"] == (
+        calculate_file_sha256(files.daily)
     )

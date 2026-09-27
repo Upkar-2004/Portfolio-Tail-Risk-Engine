@@ -2,9 +2,13 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from datetime import datetime, timezone
+from typing import Any
+from tailrisk.data import calculate_file_sha256
 
 import numpy as np
 import pandas as pd
+import json
 
 
 @dataclass(frozen=True)
@@ -432,3 +436,143 @@ def save_portfolio_path(
     )
 
     return files
+
+
+
+def save_portfolio_metadata(
+    files: PortfolioSnapshotFiles,
+    source_snapshot_id: str,
+    source_metadata: dict[str, Any],
+    portfolio_config: dict[str, Any],
+    target_weights: pd.Series,
+    result: PortfolioPath,
+    processed_at: datetime,
+) -> Path:
+    """Save portfolio construction, lineage, and output metadata."""
+
+    if processed_at.utcoffset() is None:
+        raise ValueError(
+            "Portfolio processing timestamp must include a time zone."
+        )
+
+    snapshot_directory = files.daily.parent
+
+    files_share_directory = (
+        files.beginning_weights.parent == snapshot_directory
+        and files.pre_rebalance_weights.parent
+        == snapshot_directory
+    )
+
+    if not files_share_directory:
+        raise ValueError(
+            "Portfolio snapshot files must share one directory."
+        )
+
+    for file_path in (
+        files.daily,
+        files.beginning_weights,
+        files.pre_rebalance_weights,
+    ):
+        if not file_path.is_file():
+            raise ValueError(
+                f"Portfolio snapshot file does not exist: {file_path}"
+            )
+
+    if set(target_weights.index) != set(
+        result.beginning_weights.columns
+    ):
+        raise ValueError(
+            "Portfolio target weights must match the saved tickers."
+        )
+
+    source_file = source_metadata["output"]["file"]
+
+    metadata = {
+        "schema_version": 1,
+        "processed_at_utc": processed_at.astimezone(
+            timezone.utc
+        ).isoformat(),
+        "source": {
+            "snapshot_id": source_snapshot_id,
+            "asset_returns_file": source_file["name"],
+            "asset_returns_sha256": source_file["sha256"],
+        },
+        "portfolio": {
+            "weighting_method": portfolio_config[
+                "weighting_method"
+            ],
+            "rebalancing_frequency": portfolio_config[
+                "rebalancing_frequency"
+            ],
+            "long_only": portfolio_config["long_only"],
+            "cash_weight": float(
+                portfolio_config["cash_weight"]
+            ),
+            "initial_value": float(
+                portfolio_config["initial_value"]
+            ),
+            "transaction_cost_bps": float(
+                portfolio_config["transaction_cost_bps"]
+            ),
+            "target_weights": {
+                str(ticker): float(weight)
+                for ticker, weight in target_weights.items()
+            },
+        },
+        "output": {
+            "rows": len(result.daily),
+            "first_date": (
+                result.daily.index.min().date().isoformat()
+            ),
+            "last_date": (
+                result.daily.index.max().date().isoformat()
+            ),
+            "ending_value": float(
+                result.daily["ending_value"].iloc[-1]
+            ),
+            "rebalance_count": int(
+                result.daily[
+                    "rebalanced_after_close"
+                ].sum()
+            ),
+            "total_turnover": float(
+                result.daily["turnover"].sum()
+            ),
+            "files": {
+                "portfolio_daily": {
+                    "name": files.daily.name,
+                    "sha256": calculate_file_sha256(
+                        files.daily
+                    ),
+                },
+                "beginning_weights": {
+                    "name": files.beginning_weights.name,
+                    "sha256": calculate_file_sha256(
+                        files.beginning_weights
+                    ),
+                },
+                "pre_rebalance_weights": {
+                    "name": files.pre_rebalance_weights.name,
+                    "sha256": calculate_file_sha256(
+                        files.pre_rebalance_weights
+                    ),
+                },
+            },
+        },
+    }
+
+    metadata_path = ( snapshot_directory / "metadata.json" )
+
+    with metadata_path.open(
+        "x",
+        encoding="utf-8",
+    ) as stream:
+        json.dump(
+            metadata,
+            stream,
+            indent=2,
+            sort_keys=True,
+        )
+        stream.write("\n")
+
+    return metadata_path
