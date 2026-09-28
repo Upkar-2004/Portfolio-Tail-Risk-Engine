@@ -576,3 +576,102 @@ def save_portfolio_metadata(
         stream.write("\n")
 
     return metadata_path
+
+
+
+def load_portfolio_path(
+    snapshot_directory: str | Path,
+) -> tuple[PortfolioPath, dict[str, Any]]:
+    """Load and verify a saved portfolio-path snapshot."""
+
+    snapshot_path = Path(snapshot_directory)
+    metadata_path = snapshot_path / "metadata.json"
+
+    # Metadata is the snapshot's manifest: it identifies every expected
+    # portfolio file and records the checksum produced when it was saved.
+    with metadata_path.open(
+        "r",
+        encoding="utf-8",
+    ) as stream:
+        metadata = json.load(stream)
+
+    files_metadata = metadata["output"]["files"]
+
+    file_keys = (
+        "portfolio_daily",
+        "beginning_weights",
+        "pre_rebalance_weights",
+    )
+
+    verified_paths: dict[str, Path] = {}
+
+    # Verify every file before reading any of its financial data.
+    for file_key in file_keys:
+        file_metadata = files_metadata[file_key]
+        file_path = (
+            snapshot_path / file_metadata["name"]
+        )
+
+        expected_checksum = file_metadata["sha256"]
+        actual_checksum = calculate_file_sha256(
+            file_path
+        )
+
+        if actual_checksum != expected_checksum:
+            raise ValueError(
+                "Portfolio snapshot checksum does not match "
+                f"for {file_metadata['name']}."
+            )
+
+        verified_paths[file_key] = file_path
+
+    daily = pd.read_csv(
+        verified_paths["portfolio_daily"],
+        index_col="Date",
+        parse_dates=["Date"],
+    )
+    beginning_weights = pd.read_csv(
+        verified_paths["beginning_weights"],
+        index_col="Date",
+        parse_dates=["Date"],
+    )
+    pre_rebalance_weights = pd.read_csv(
+        verified_paths["pre_rebalance_weights"],
+        index_col="Date",
+        parse_dates=["Date"],
+    )
+
+    # All three tables describe the same trading sessions.
+    indexes_match = (
+        daily.index.equals(
+            beginning_weights.index
+        )
+        and daily.index.equals(
+            pre_rebalance_weights.index
+        )
+    )
+
+    if not indexes_match:
+        raise ValueError(
+            "Portfolio snapshot tables must use the same dates."
+        )
+
+    # Both weight tables must describe the same asset universe.
+    weight_columns_match = (
+        beginning_weights.columns.equals(
+            pre_rebalance_weights.columns
+        )
+    )
+
+    if not weight_columns_match:
+        raise ValueError(
+            "Portfolio weight tables must use the same tickers."
+        )
+
+    result = PortfolioPath(
+        daily=daily,
+        beginning_weights=beginning_weights,
+        pre_rebalance_weights=pre_rebalance_weights,
+    )
+
+    return result, metadata

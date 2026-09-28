@@ -433,3 +433,280 @@ def test_save_portfolio_metadata_records_research_lineage(
     assert daily_file_metadata["sha256"] == (
         calculate_file_sha256(files.daily)
     )
+
+
+def test_load_portfolio_path_verifies_and_loads_snapshot(
+    tmp_path: Path,
+) -> None:
+    """Verify that a valid portfolio snapshot can be loaded."""
+
+    snapshot_directory = tmp_path / "portfolio_snapshot"
+    snapshot_directory.mkdir()
+
+    dates = pd.to_datetime(
+        [
+            "2025-01-30",
+            "2025-01-31",
+        ]
+    )
+
+    expected_daily = pd.DataFrame(
+        {
+            "beginning_value": [1_000.0, 1_050.0],
+            "portfolio_return": [0.05, 0.00],
+            "pnl": [50.0, 0.0],
+            "loss": [-50.0, 0.0],
+            "ending_value": [1_050.0, 1_050.0],
+            "rebalanced_after_close": [False, False],
+            "turnover": [0.0, 0.0],
+        },
+        index=dates,
+    )
+
+    expected_beginning_weights = pd.DataFrame(
+        {
+            "A": [0.50, 550.0 / 1_050.0],
+            "B": [0.50, 500.0 / 1_050.0],
+        },
+        index=dates,
+    )
+
+    expected_pre_rebalance_weights = pd.DataFrame(
+        {
+            "A": [550.0 / 1_050.0, 550.0 / 1_050.0],
+            "B": [500.0 / 1_050.0, 500.0 / 1_050.0],
+        },
+        index=dates,
+    )
+
+    for table in (
+        expected_daily,
+        expected_beginning_weights,
+        expected_pre_rebalance_weights,
+    ):
+        table.index.name = "Date"
+
+    paths = {
+        "portfolio_daily": (
+            snapshot_directory / "portfolio_daily.csv"
+        ),
+        "beginning_weights": (
+            snapshot_directory / "beginning_weights.csv"
+        ),
+        "pre_rebalance_weights": (
+            snapshot_directory / "pre_rebalance_weights.csv"
+        ),
+    }
+
+    expected_daily.to_csv(paths["portfolio_daily"])
+    expected_beginning_weights.to_csv(
+        paths["beginning_weights"]
+    )
+    expected_pre_rebalance_weights.to_csv(
+        paths["pre_rebalance_weights"]
+    )
+
+    metadata = {
+        "output": {
+            "files": {
+                name: {
+                    "name": path.name,
+                    "sha256": calculate_file_sha256(path),
+                }
+                for name, path in paths.items()
+            }
+        }
+    }
+
+    (snapshot_directory / "metadata.json").write_text(
+        json.dumps(metadata),
+        encoding="utf-8",
+    )
+
+    loaded_path, loaded_metadata = (
+        portfolio.load_portfolio_path(
+            snapshot_directory
+        )
+    )
+
+    pd.testing.assert_frame_equal(
+        loaded_path.daily,
+        expected_daily,
+    )
+    pd.testing.assert_frame_equal(
+        loaded_path.beginning_weights,
+        expected_beginning_weights,
+    )
+    pd.testing.assert_frame_equal(
+        loaded_path.pre_rebalance_weights,
+        expected_pre_rebalance_weights,
+    )
+    assert loaded_metadata == metadata
+
+
+
+
+@pytest.mark.parametrize(
+    "tampered_file_key",
+    [
+        "portfolio_daily",
+        "beginning_weights",
+        "pre_rebalance_weights",
+    ],
+)
+def test_load_portfolio_path_rejects_checksum_mismatch(
+    tmp_path: Path,
+    tampered_file_key: str,
+) -> None:
+    """Verify that modified portfolio files are rejected."""
+
+    snapshot_directory = tmp_path / "portfolio_snapshot"
+    snapshot_directory.mkdir()
+
+    paths = {
+        "portfolio_daily": (
+            snapshot_directory / "portfolio_daily.csv"
+        ),
+        "beginning_weights": (
+            snapshot_directory / "beginning_weights.csv"
+        ),
+        "pre_rebalance_weights": (
+            snapshot_directory / "pre_rebalance_weights.csv"
+        ),
+    }
+
+    paths["portfolio_daily"].write_text(
+        (
+            "Date,beginning_value,portfolio_return,pnl,loss,"
+            "ending_value,rebalanced_after_close,turnover\n"
+            "2025-01-30,1000.0,0.05,50.0,-50.0,"
+            "1050.0,False,0.0\n"
+        ),
+        encoding="utf-8",
+    )
+    paths["beginning_weights"].write_text(
+        "Date,A,B\n2025-01-30,0.5,0.5\n",
+        encoding="utf-8",
+    )
+    paths["pre_rebalance_weights"].write_text(
+        "Date,A,B\n2025-01-30,0.5238,0.4762\n",
+        encoding="utf-8",
+    )
+
+    metadata = {
+        "output": {
+            "files": {
+                name: {
+                    "name": path.name,
+                    "sha256": calculate_file_sha256(path),
+                }
+                for name, path in paths.items()
+            }
+        }
+    }
+
+    (snapshot_directory / "metadata.json").write_text(
+        json.dumps(metadata),
+        encoding="utf-8",
+    )
+
+    # Simulate accidental editing or corruption after the snapshot
+    # checksums have already been recorded.
+    paths[tampered_file_key].write_text(
+        "modified file contents\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="checksum",
+    ):
+        portfolio.load_portfolio_path(
+            snapshot_directory
+        )
+
+
+
+@pytest.mark.parametrize(
+    ("mismatch_type", "expected_message"),
+    [
+        ("dates", "same dates"),
+        ("tickers", "same tickers"),
+    ],
+)
+def test_load_portfolio_path_rejects_inconsistent_tables(
+    tmp_path: Path,
+    mismatch_type: str,
+    expected_message: str,
+) -> None:
+    """Verify that portfolio tables must describe one portfolio path."""
+
+    snapshot_directory = tmp_path / "portfolio_snapshot"
+    snapshot_directory.mkdir()
+
+    dates = pd.to_datetime(["2025-01-30"])
+
+    daily = pd.DataFrame(
+        {
+            "portfolio_return": [0.0],
+        },
+        index=dates,
+    )
+    beginning_weights = pd.DataFrame(
+        {
+            "A": [0.50],
+            "B": [0.50],
+        },
+        index=dates,
+    )
+    pre_rebalance_weights = beginning_weights.copy()
+
+    if mismatch_type == "dates":
+        pre_rebalance_weights.index = pd.to_datetime(
+            ["2025-01-31"]
+        )
+    else:
+        pre_rebalance_weights.columns = [
+            "A",
+            "C",
+        ]
+
+    tables = {
+        "portfolio_daily": daily,
+        "beginning_weights": beginning_weights,
+        "pre_rebalance_weights": pre_rebalance_weights,
+    }
+
+    paths = {
+        name: snapshot_directory / f"{name}.csv"
+        for name in tables
+    }
+
+    for name, table in tables.items():
+        table.index.name = "Date"
+        table.to_csv(paths[name])
+
+    metadata = {
+        "output": {
+            "files": {
+                name: {
+                    "name": path.name,
+                    "sha256": calculate_file_sha256(path),
+                }
+                for name, path in paths.items()
+            }
+        }
+    }
+
+    (snapshot_directory / "metadata.json").write_text(
+        json.dumps(metadata),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=expected_message,
+    ):
+        portfolio.load_portfolio_path(
+            snapshot_directory
+        )
