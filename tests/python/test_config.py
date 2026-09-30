@@ -7,6 +7,7 @@ import pytest
 from tailrisk.config import (
     load_config,
     validate_portfolio_config,
+    validate_forecasting_config,
 )
 
 
@@ -20,6 +21,20 @@ def _valid_portfolio_config() -> dict[str, object]:
         "cash_weight": 0.0,
         "initial_value": 1_000_000.0,
         "transaction_cost_bps": 0.0,
+    }
+
+
+def _valid_forecasting_config() -> dict[str, object]:
+    """Return valid forecasting settings for controlled tests."""
+
+    return {
+        "horizon_sessions": 1,
+        "estimation_window": 504,
+        "confidence_levels": [
+            0.95,
+            0.975,
+            0.99,
+        ],
     }
 
 
@@ -43,6 +58,14 @@ portfolio:
   cash_weight: 0.0
   initial_value: 1000000.0
   transaction_cost_bps: 0.0
+
+forecasting:
+  horizon_sessions: 1
+  estimation_window: 504
+  confidence_levels:
+    - 0.95
+    - 0.975
+    - 0.99
 """,
         encoding="utf-8",
     )
@@ -53,6 +76,7 @@ portfolio:
     assert config["experiment"]["name"] == "test"
     assert config["data"]["interval"] == "1d"
     assert config["portfolio"]["rebalancing_frequency"] == "monthly"
+    assert config["forecasting"]["estimation_window"] == 504
 
 
 def test_load_config_rejects_list_at_root(tmp_path: Path) -> None:
@@ -130,3 +154,50 @@ def test_validate_portfolio_config_rejects_invalid_settings(
 
     with pytest.raises(ValueError, match=field):
         validate_portfolio_config(portfolio)
+
+
+def test_validate_forecasting_config_accepts_valid_settings() -> None:
+    forecasting = _valid_forecasting_config()
+
+    validate_forecasting_config(forecasting)
+
+
+def test_validate_forecasting_config_rejects_missing_field() -> None:
+    forecasting = _valid_forecasting_config()
+    forecasting.pop("estimation_window")
+
+    with pytest.raises(
+        ValueError,
+        match="estimation_window",
+    ):
+        validate_forecasting_config(forecasting)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("horizon_sessions", 0),
+        ("horizon_sessions", 2),
+        ("horizon_sessions", True),
+        ("estimation_window", 0),
+        ("estimation_window", -1),
+        ("estimation_window", 504.0),
+        ("confidence_levels", []),
+        ("confidence_levels", [0.0, 0.95]),
+        ("confidence_levels", [0.95, 1.0]),
+        ("confidence_levels", [0.95, 0.95]),
+        ("confidence_levels", [0.99, 0.95]),
+    ],
+)
+def test_validate_forecasting_config_rejects_invalid_settings(
+    field: str,
+    value: object,
+) -> None:
+    forecasting = _valid_forecasting_config()
+    forecasting[field] = value
+
+    with pytest.raises(
+        ValueError,
+        match=field,
+    ):
+        validate_forecasting_config(forecasting)

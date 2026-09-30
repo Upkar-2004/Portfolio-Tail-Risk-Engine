@@ -77,3 +77,12 @@ portfolio:
   cash_weight: 0.0
   initial_value: 1000000.0
   transaction_cost_bps: 0.0
+
+
+forecasting:
+  horizon_sessions: 1
+  estimation_window: 504
+  confidence_levels:
+    - 0.95
+    - 0.975
+    - 0.99

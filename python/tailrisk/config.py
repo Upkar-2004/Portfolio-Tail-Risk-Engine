@@ -6,8 +6,24 @@ from math import isfinite
 
 import yaml
 
+_REQUIRED_SECTIONS = frozenset(
+    {
+        "experiment",
+        "universe",
+        "data",
+        "portfolio",
+        "forecasting",
+    }
+)
 
-_REQUIRED_SECTIONS = frozenset({"experiment", "universe", "data", "portfolio"}) #immutable set of required sections for the configuration
+_REQUIRED_FORECASTING_FIELDS = frozenset(
+    {
+        "horizon_sessions",
+        "estimation_window",
+        "confidence_levels",
+    }
+)
+
 _REQUIRED_PORTFOLIO_FIELDS = frozenset(
     {
         "weighting_method",
@@ -119,6 +135,97 @@ def validate_portfolio_config(
         )
 
 
+def validate_forecasting_config(
+    forecasting: dict[str, Any],
+) -> None:
+    """Validate the shared out-of-sample forecasting settings."""
+
+    if not isinstance(forecasting, dict):
+        raise ValueError(
+            "Forecasting configuration must be a mapping."
+        )
+
+    missing_fields = (
+        _REQUIRED_FORECASTING_FIELDS
+        - forecasting.keys()
+    )
+
+    if missing_fields:
+        missing_names = ", ".join(
+            sorted(missing_fields)
+        )
+        raise ValueError(
+            "Forecasting configuration is missing "
+            f"required field(s): {missing_names}"
+        )
+
+    horizon_sessions = forecasting[
+        "horizon_sessions"
+    ]
+
+    if (
+        isinstance(horizon_sessions, bool)
+        or not isinstance(horizon_sessions, int)
+        or horizon_sessions != 1
+    ):
+        raise ValueError(
+            "Forecasting field 'horizon_sessions' "
+            "must equal 1."
+        )
+
+    estimation_window = forecasting[
+        "estimation_window"
+    ]
+
+    if (
+        isinstance(estimation_window, bool)
+        or not isinstance(estimation_window, int)
+        or estimation_window <= 0
+    ):
+        raise ValueError(
+            "Forecasting field 'estimation_window' "
+            "must be a positive integer."
+        )
+
+    confidence_levels = forecasting[
+        "confidence_levels"
+    ]
+
+    if (
+        not isinstance(confidence_levels, list)
+        or not confidence_levels
+    ):
+        raise ValueError(
+            "Forecasting field 'confidence_levels' "
+            "must be a nonempty list."
+        )
+
+    for level in confidence_levels:
+        if (
+            isinstance(level, bool)
+            or not isinstance(level, (int, float))
+            or not isfinite(level)
+            or not 0.0 < level < 1.0
+        ):
+            raise ValueError(
+                "Forecasting field 'confidence_levels' "
+                "must contain finite numbers strictly "
+                "between 0 and 1."
+            )
+
+    if any(
+        left >= right
+        for left, right in zip(
+            confidence_levels,
+            confidence_levels[1:],
+        )
+    ):
+        raise ValueError(
+            "Forecasting field 'confidence_levels' "
+            "must be unique and strictly increasing."
+        )
+
+
 def load_config(path: str | Path) -> dict[str, Any]:
     """Load a YAML configuration and validate its top-level structure."""
 
@@ -139,5 +246,6 @@ def load_config(path: str | Path) -> dict[str, Any]:
         )
 
     validate_portfolio_config(config["portfolio"])
+    validate_forecasting_config(config["forecasting"])
 
     return config
