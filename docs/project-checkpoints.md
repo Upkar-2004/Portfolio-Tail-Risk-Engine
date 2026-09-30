@@ -1,12 +1,13 @@
 # Project Checkpoints
 
-Last updated: 2026-08-25
+Last updated: 2026-09-30
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
-**Current phase:** Asset-return pipeline
+**Current phase:** Multivariate rolling Gaussian reference model
 
-**Next checkpoint:** Review and test the mathematics of one-day simple returns.
+**Next checkpoint:** Review and test mean vectors, sample covariance matrices,
+and portfolio variance using a controlled two-asset example.
 
 ## 1. Project definition and research scope
 
@@ -48,44 +49,66 @@ This checklist tracks the research, learning, and engineering progress of the Po
 
 ## 4. Asset-return pipeline
 
-- [ ] Review the mathematics of one-day simple returns.
-- [ ] Implement adjusted-close simple returns without implicit forward filling.
-- [ ] Ensure missing prices produce missing returns.
-- [ ] Test positive, negative, zero, and missing-return examples.
-- [ ] Verify that returns use consecutive chronological sessions.
-- [ ] Generate and validate the baseline asset-return matrix.
-- [ ] Flag unusually large returns for review without automatically deleting them.
+- [x] Review the mathematics of one-day simple returns.
+- [x] Implement adjusted-close simple returns without implicit forward filling.
+- [x] Ensure missing prices produce missing returns.
+- [x] Test positive, negative, zero, and missing-return examples.
+- [x] Verify that returns use consecutive chronological sessions.
+- [x] Generate and validate the baseline asset-return matrix.
+- [x] Flag unusually large returns for review without automatically deleting them.
+- [x] Save the processed-return snapshot with lineage metadata and a SHA-256 checksum.
+- [x] Implement and test checksum-verified loading of processed returns.
 
 ## 5. Portfolio construction and realized losses
 
-- [ ] Finalize and document the baseline portfolio-weight rule.
-- [ ] Finalize the rebalancing frequency, cash treatment, and initial portfolio value.
-- [ ] Add the portfolio decisions to the baseline configuration.
-- [ ] Implement beginning-of-period portfolio weights.
-- [ ] Calculate portfolio returns, P&L, and losses using the documented sign convention.
-- [ ] Test return aggregation, P&L, and loss calculations numerically.
-- [ ] Verify that no future information enters the portfolio weights.
+- [x] Finalize and document the baseline portfolio-weight rule.
+- [x] Finalize the rebalancing frequency, cash treatment, and initial portfolio value.
+- [x] Add the portfolio decisions to the baseline configuration.
+- [x] Implement beginning-of-period weights, natural drift, and monthly rebalancing.
+- [x] Calculate portfolio returns, P&L, and losses using the documented sign convention.
+- [x] Test return aggregation, P&L, loss, turnover, and rebalancing numerically.
+- [x] Verify that no future information enters the portfolio weights.
+- [x] Save portfolio paths, weight histories, lineage metadata, and SHA-256 checksums.
+- [x] Implement and test a loader that verifies every portfolio-snapshot checksum.
+- [x] Reject portfolio snapshots with inconsistent dates or ticker columns.
 
-## 6. Backtest protocol decisions
+## 6. Descriptive portfolio-return diagnostics
 
-- [ ] Fix the VaR and Expected Shortfall confidence levels.
-- [ ] Fix estimation-window lengths and the first forecast date.
+- [x] Review sample mean, sample variance, volatility, and annualization.
+- [x] Review skewness, excess kurtosis, empirical loss quantiles, and extreme returns.
+- [x] Implement and test descriptive return diagnostics against a manual example.
+- [x] Validate sample-size, date-index, finiteness, variability, and annualization inputs.
+- [x] Add a command-line summary using the checksum-verified portfolio snapshot.
+- [x] Reproduce the baseline portfolio statistics over all 4,023 sessions.
+
+## 7. Backtest protocol decisions
+
+- [x] Fix the primary forecast horizon at one trading session.
+- [x] Fix the VaR and Expected Shortfall levels at 95%, 97.5%, and 99%.
+- [x] Fix the baseline estimation window at 504 sessions.
+- [x] Fix the first eligible baseline forecast date at 2012-01-04.
+- [x] Validate the shared forecasting settings in the baseline configuration.
 - [ ] Fix covariance-estimation conventions.
 - [ ] Fix simulation counts and random seeds.
-- [ ] Fix missing-data and forecast-date eligibility rules.
+- [x] Require verified, finite, complete portfolio returns on eligible forecast dates.
 - [ ] Fix statistical-test decision rules.
 - [ ] Record all finalized decisions before examining comparative model results.
 
-## 7. Rolling Gaussian reference model
+## 8. Rolling Gaussian reference model
 
-- [ ] Review the mathematics of mean vectors, covariance matrices, portfolio variance, Gaussian VaR, and Gaussian ES.
-- [ ] Implement rolling sample mean and covariance estimation in Python.
-- [ ] Implement analytic one-day Gaussian VaR and ES.
+- [x] Review and test scalar Gaussian return-loss VaR and Expected Shortfall.
+- [x] Implement analytic one-day Gaussian VaR and Expected Shortfall.
+- [x] Implement and test a univariate rolling portfolio-return benchmark.
+- [ ] Review mean vectors, sample covariance matrices, and portfolio variance.
+- [ ] Implement and test one-window multivariate portfolio moments.
+- [ ] Implement rolling asset-level sample mean and covariance estimation.
+- [ ] Apply forecast-date portfolio weights to asset-level moments without look-ahead.
+- [ ] Validate covariance symmetry, finiteness, and positive semidefiniteness.
 - [ ] Implement a Python Monte Carlo reference simulation.
-- [ ] Test covariance, portfolio variance, VaR, and ES on controlled examples.
+- [ ] Test multivariate portfolio mean, variance, VaR, and ES on controlled examples.
 - [ ] Verify agreement between analytic and simulated Gaussian results within a justified tolerance.
 
-## 8. EWMA Gaussian model
+## 9. EWMA Gaussian model
 
 - [ ] Review the mathematics of exponentially weighted covariance estimation.
 - [ ] Select and document the EWMA decay parameter.
@@ -93,7 +116,7 @@ This checklist tracks the research, learning, and engineering progress of the Po
 - [ ] Test initialization, recursion, symmetry, and numerical stability.
 - [ ] Implement EWMA Gaussian VaR and ES forecasts.
 
-## 9. Filtered historical simulation
+## 10. Filtered historical simulation
 
 - [ ] Review volatility filtering, standardized residuals, resampling, and volatility rescaling.
 - [ ] Finalize the filtering and residual-sampling conventions.
@@ -101,15 +124,15 @@ This checklist tracks the research, learning, and engineering progress of the Po
 - [ ] Test filtering, residual standardization, resampling, and forecast scaling.
 - [ ] Implement filtered-historical-simulation VaR and ES forecasts.
 
-## 10. Rolling forecast and backtest engine
+## 11. Rolling forecast and backtest engine
 
-- [ ] Implement one-step-ahead rolling forecasts with no look-ahead.
+- [x] Implement a shared one-step-ahead forecast schedule with no look-ahead.
+- [x] Test forecast-window boundaries, date ordering, and realized-loss alignment.
 - [ ] Use identical forecast dates and realized losses for all models.
 - [ ] Store forecasts, realized losses, exceedances, and model metadata.
-- [ ] Test forecast-window boundaries and time alignment.
 - [ ] Run the complete baseline backtest for all three models.
 
-## 11. Statistical evaluation
+## 12. Statistical evaluation
 
 - [ ] Review VaR exceedances and nominal coverage mathematically.
 - [ ] Implement exceedance-rate summaries.
@@ -119,7 +142,7 @@ This checklist tracks the research, learning, and engineering progress of the Po
 - [ ] Test statistical functions against controlled examples or independent calculations.
 - [ ] Compare all models without assuming that greater complexity performs better.
 
-## 12. C++ numerical simulation core
+## 13. C++ numerical simulation core
 
 - [ ] Finalize the C++ numerical API and input contracts.
 - [ ] Implement dimension, finiteness, and covariance validation.
@@ -130,23 +153,25 @@ This checklist tracks the research, learning, and engineering progress of the Po
 - [ ] Compare C++ outputs with the validated Python reference implementation.
 - [ ] Benchmark only after correctness is established.
 
-## 13. Python bindings
+## 14. Python bindings
 
 - [ ] Implement the thin pybind11 interface.
 - [ ] Validate array shapes, data types, and ownership across the language boundary.
 - [ ] Add Python integration tests for the compiled module.
 - [ ] Confirm Python and C++ agreement on identical inputs and seeds.
 
-## 14. Terminal interface and reproducibility workflow
+## 15. Terminal interface and reproducibility workflow
 
 - [ ] Design the terminal interface and command structure.
+- [x] Add commands for raw-data retrieval, return processing, portfolio construction,
+  and descriptive portfolio diagnostics.
 - [ ] Provide commands for downloading, validating, processing, backtesting, and reporting.
 - [ ] Support explicit configuration-file selection.
 - [ ] Display readable progress, validation summaries, and actionable errors.
 - [ ] Add a single reproducibility command for the permitted end-to-end workflow.
 - [ ] Document setup and usage in `README.md`.
 
-## 15. Results, robustness, and final delivery
+## 16. Results, robustness, and final delivery
 
 - [ ] Generate reproducible result tables and figures.
 - [ ] Interpret calibration, exceedance clustering, and tail-loss severity.
