@@ -32,30 +32,94 @@ def calculate_return_diagnostics(
         portfolio_returns: pd.Series,
         sessions_per_year: int = 252,
 )-> ReturnDiagnostics:
-    """Calculate basic statistics for realized portfolio returns.
+    r"""Calculate descriptive statistics for realized portfolio returns.
 
-    Mathematical conventions:
+    Let :math:`R_t` be the simple portfolio return for session :math:`t`,
+    :math:`n` the number of observations, and :math:`m` the assumed number
+    of trading sessions per year. The arithmetic sample mean is
 
-        Sample mean:
-            R_bar = (1 / n) * sum(R_t)
+    .. math::
 
-        Sample variance:
-            s^2 = sum((R_t - R_bar)^2) / (n - 1)
+        \bar{R} = \frac{1}{n}\sum_{t=1}^{n}R_t.
 
-        Daily volatility:
-            s = sqrt(s^2)
+    The sample variance and daily volatility are
 
-        Annualized arithmetic mean:
-            R_bar_annual = m * R_bar
+    .. math::
 
-        Annualized volatility:
-            s_annual = sqrt(m) * s
+        s^2 = \frac{1}{n-1}\sum_{t=1}^{n}(R_t-\bar{R})^2,
+        \qquad s = \sqrt{s^2}.
 
-    Here, n is the number of observations and m is the assumed
-    number of trading sessions per year.
+    Their annualized values are calculated as
 
-    Square-root-of-time annualization assumes uncorrelated returns
-    and stable daily variance. Annualized arithmetic mean is not CAGR.
+    .. math::
+
+        \bar{R}_{\mathrm{annual}} = m\bar{R},
+        \qquad s_{\mathrm{annual}} = \sqrt{m}\,s.
+
+    For distribution-shape statistics, define the central moments
+
+    .. math::
+
+        m_k = \frac{1}{n}\sum_{t=1}^{n}(R_t-\bar{R})^k.
+
+    Pandas' bias-corrected Fisher-Pearson sample skewness is
+
+    .. math::
+
+        G_1 = \frac{\sqrt{n(n-1)}}{n-2}
+              \frac{m_3}{m_2^{3/2}}.
+
+    For kurtosis, first define the unadjusted excess coefficient
+
+    .. math::
+
+        g_2 = \frac{m_4}{m_2^2} - 3.
+
+    Pandas' bias-corrected Fisher excess kurtosis is then
+
+    .. math::
+
+        G_2 = \frac{n-1}{(n-2)(n-3)}
+              \left[(n+1)g_2+6\right].
+
+    The subtraction of three makes a Gaussian distribution's theoretical
+    excess kurtosis zero. Both shape estimators require positive return
+    variability, and adjusted excess kurtosis requires at least four
+    observations.
+
+    Return losses use the positive-loss convention
+
+    .. math::
+
+        L_t = -R_t.
+
+    The 95%, 97.5%, and 99% empirical loss quantiles are computed from
+    :math:`L_t` using linear interpolation. They describe the full realized
+    sample and are not out-of-sample VaR forecasts. The worst and best
+    returns are the sample minimum and maximum; if an extreme is tied, its
+    earliest date is reported.
+
+    Parameters
+    ----------
+    portfolio_returns:
+        Finite daily simple returns indexed by dates. At least four
+        observations and positive sample variance are required.
+    sessions_per_year:
+        Positive number of trading sessions used for annualization.
+        The default is 252.
+
+    Returns
+    -------
+    ReturnDiagnostics
+        The daily, annualized, distribution-shape, empirical-tail, and
+        extreme-return statistics.
+
+    Notes
+    -----
+    Square-root-of-time volatility scaling assumes stable daily variance
+    and no material serial dependence. Arithmetic mean annualization is
+    not compounded growth and is not CAGR. Skewness, kurtosis, and empirical
+    quantiles can be sensitive to extreme observations and regime changes.
     """
 
 
