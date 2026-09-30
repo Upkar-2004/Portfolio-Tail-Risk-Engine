@@ -32,94 +32,50 @@ def calculate_return_diagnostics(
         portfolio_returns: pd.Series,
         sessions_per_year: int = 252,
 )-> ReturnDiagnostics:
-    r"""Calculate descriptive statistics for realized portfolio returns.
+    """Calculate descriptive statistics for daily portfolio returns.
 
-    Let :math:`R_t` be the simple portfolio return for session :math:`t`,
-    :math:`n` the number of observations, and :math:`m` the assumed number
-    of trading sessions per year. The arithmetic sample mean is
+    Notation
+    --------
+    R_t   = portfolio return on day t
+    R_bar = arithmetic mean return
+    n     = number of observations
+    m     = trading sessions per year
+    M_k   = kth central moment
 
-    .. math::
+    Formulas
+    --------
+    Mean:
+        R_bar = (1 / n) * Σ R_t
 
-        \bar{R} = \frac{1}{n}\sum_{t=1}^{n}R_t.
+    Sample variance and volatility:
+        s² = Σ(R_t - R_bar)² / (n - 1)
+        s  = √s²
 
-    The sample variance and daily volatility are
+    Annualization:
+        annualized_mean = m * R_bar
+        annualized_volatility = √m * s
 
-    .. math::
+    Central moments:
+        M_k = (1 / n) * Σ(R_t - R_bar)^k
 
-        s^2 = \frac{1}{n-1}\sum_{t=1}^{n}(R_t-\bar{R})^2,
-        \qquad s = \sqrt{s^2}.
+    Bias-corrected sample skewness:
+        skewness = [√(n(n - 1)) / (n - 2)] * [M_3 / M_2^(3/2)]
 
-    Their annualized values are calculated as
+    Bias-corrected excess kurtosis:
+        raw_excess = M_4 / M_2² - 3
+        excess_kurtosis =
+            [(n - 1) / ((n - 2)(n - 3))]
+            * [(n + 1) * raw_excess + 6]
 
-    .. math::
+    Loss convention:
+        L_t = -R_t
 
-        \bar{R}_{\mathrm{annual}} = m\bar{R},
-        \qquad s_{\mathrm{annual}} = \sqrt{m}\,s.
+    Loss quantiles use linear interpolation. If an extreme return occurs
+    more than once, its earliest date is reported.
 
-    For distribution-shape statistics, define the central moments
-
-    .. math::
-
-        m_k = \frac{1}{n}\sum_{t=1}^{n}(R_t-\bar{R})^k.
-
-    Pandas' bias-corrected Fisher-Pearson sample skewness is
-
-    .. math::
-
-        G_1 = \frac{\sqrt{n(n-1)}}{n-2}
-              \frac{m_3}{m_2^{3/2}}.
-
-    For kurtosis, first define the unadjusted excess coefficient
-
-    .. math::
-
-        g_2 = \frac{m_4}{m_2^2} - 3.
-
-    Pandas' bias-corrected Fisher excess kurtosis is then
-
-    .. math::
-
-        G_2 = \frac{n-1}{(n-2)(n-3)}
-              \left[(n+1)g_2+6\right].
-
-    The subtraction of three makes a Gaussian distribution's theoretical
-    excess kurtosis zero. Both shape estimators require positive return
-    variability, and adjusted excess kurtosis requires at least four
-    observations.
-
-    Return losses use the positive-loss convention
-
-    .. math::
-
-        L_t = -R_t.
-
-    The 95%, 97.5%, and 99% empirical loss quantiles are computed from
-    :math:`L_t` using linear interpolation. They describe the full realized
-    sample and are not out-of-sample VaR forecasts. The worst and best
-    returns are the sample minimum and maximum; if an extreme is tied, its
-    earliest date is reported.
-
-    Parameters
-    ----------
-    portfolio_returns:
-        Finite daily simple returns indexed by dates. At least four
-        observations and positive sample variance are required.
-    sessions_per_year:
-        Positive number of trading sessions used for annualization.
-        The default is 252.
-
-    Returns
-    -------
-    ReturnDiagnostics
-        The daily, annualized, distribution-shape, empirical-tail, and
-        extreme-return statistics.
-
-    Notes
-    -----
-    Square-root-of-time volatility scaling assumes stable daily variance
-    and no material serial dependence. Arithmetic mean annualization is
-    not compounded growth and is not CAGR. Skewness, kurtosis, and empirical
-    quantiles can be sensitive to extreme observations and regime changes.
+    These are full-sample descriptive statistics, not out-of-sample risk
+    forecasts. Square-root-of-time annualization assumes stable variance
+    and no material serial dependence.
     """
 
 
