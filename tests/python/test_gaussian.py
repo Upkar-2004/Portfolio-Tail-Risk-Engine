@@ -8,6 +8,7 @@ from tailrisk.backtesting import create_forecast_schedule
 from tailrisk.models import (
     calculate_gaussian_var_es,
     calculate_rolling_gaussian_forecasts,
+    calculate_rolling_multivariate_gaussian_forecasts,
 )
 
 
@@ -261,3 +262,117 @@ def test_rolling_gaussian_forecasts_rejects_lookahead() -> None:
             forecast_schedule=schedule,
             confidence_levels=[0.95],
         )
+
+
+def test_rolling_multivariate_gaussian_forecasts_use_prior_asset_returns(
+) -> None:
+    """Verify rolling covariance estimates and forecast-date weights."""
+
+    dates = pd.to_datetime(
+        [
+            "2025-01-02",
+            "2025-01-03",
+            "2025-01-06",
+            "2025-01-07",
+            "2025-01-08",
+        ]
+    )
+
+    asset_returns = pd.DataFrame(
+        {
+            "A": [0.02, 0.00, -0.01, 0.03, 0.01],
+            "B": [0.01, -0.01, 0.00, 0.02, -0.02],
+        },
+        index=dates,
+    )
+
+    beginning_weights = pd.DataFrame(
+        {
+            "A": [0.50, 0.50, 0.50, 0.60, 0.25],
+            "B": [0.50, 0.50, 0.50, 0.40, 0.75],
+        },
+        index=dates,
+    )
+
+    portfolio_returns = (
+        asset_returns * beginning_weights
+    ).sum(axis=1)
+
+    schedule = create_forecast_schedule(
+        portfolio_returns,
+        estimation_window=3,
+    )
+
+    result = calculate_rolling_multivariate_gaussian_forecasts(
+        asset_returns=asset_returns,
+        beginning_weights=beginning_weights,
+        forecast_schedule=schedule,
+        confidence_levels=[0.95, 0.99],
+    )
+
+    expected_index = pd.MultiIndex.from_tuples(
+        [
+            (dates[3], 0.95),
+            (dates[3], 0.99),
+            (dates[4], 0.95),
+            (dates[4], 0.99),
+        ],
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+
+    pd.testing.assert_index_equal(
+        result.index,
+        expected_index,
+    )
+
+    first_forecast = result.loc[
+        (dates[3], 0.95)
+    ]
+
+    assert first_forecast["mean_return"] == pytest.approx(
+        0.002
+    )
+    assert first_forecast["volatility"] == pytest.approx(
+        0.01216552506059644
+    )
+    assert first_forecast["value_at_risk"] == pytest.approx(
+        0.018010508019691077
+    )
+    assert first_forecast["expected_shortfall"] == pytest.approx(
+        0.023093984352544866
+    )
+
+    second_forecast = result.loc[
+        (dates[4], 0.95)
+    ]
+
+    assert second_forecast["mean_return"] == pytest.approx(
+        0.004166666666666667
+    )
+    assert second_forecast["volatility"] == pytest.approx(
+        0.01607275126832159
+    )
+    assert second_forecast["value_at_risk"] == pytest.approx(
+        0.022270656552120967
+    )
+    assert second_forecast["expected_shortfall"] == pytest.approx(
+        0.028986803226381544
+    )
+
+    assert (
+        result.loc[
+            (dates[3], 0.99),
+            "value_at_risk",
+        ]
+        > first_forecast["value_at_risk"]
+    )
+    assert (
+        result.loc[
+            (dates[3], 0.99),
+            "expected_shortfall",
+        ]
+        > first_forecast["expected_shortfall"]
+    )

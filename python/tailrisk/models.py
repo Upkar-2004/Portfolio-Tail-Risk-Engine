@@ -5,6 +5,12 @@ from math import isfinite
 from numbers import Real
 from statistics import NormalDist
 
+
+from tailrisk.covariance import (
+    calculate_sample_portfolio_moments,
+)
+
+
 import pandas as pd
 
 
@@ -163,6 +169,192 @@ def calculate_rolling_gaussian_forecasts(
                 {
                     "mean_return": mean_return,
                     "volatility": volatility,
+                    "value_at_risk": (
+                        forecast.value_at_risk
+                    ),
+                    "expected_shortfall": (
+                        forecast.expected_shortfall
+                    ),
+                }
+            )
+
+    forecast_index = pd.MultiIndex.from_tuples(
+        forecast_keys,
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+
+    return pd.DataFrame(
+        records,
+        index=forecast_index,
+    )
+
+
+
+def calculate_rolling_multivariate_gaussian_forecasts(
+    asset_returns: pd.DataFrame,
+    beginning_weights: pd.DataFrame,
+    forecast_schedule: pd.DataFrame,
+    confidence_levels: list[float],
+) -> pd.DataFrame:
+    """Calculate rolling Gaussian forecasts from asset-level returns.
+
+    Each estimation window ends before its forecast date. The function
+    estimates asset means and covariances, combines them using the
+    beginning-of-day portfolio weights, and calculates Gaussian VaR and ES.
+    """
+
+    if not isinstance(asset_returns, pd.DataFrame):
+        raise TypeError(
+            "Asset returns must be a pandas DataFrame."
+        )
+
+    if not isinstance(beginning_weights, pd.DataFrame):
+        raise TypeError(
+            "Beginning weights must be a pandas DataFrame."
+        )
+
+    if not isinstance(forecast_schedule, pd.DataFrame):
+        raise TypeError(
+            "Forecast schedule must be a pandas DataFrame."
+        )
+
+    if not confidence_levels:
+        raise ValueError(
+            "At least one confidence level is required."
+        )
+
+    required_schedule_columns = {
+        "estimation_start_date",
+        "estimation_end_date",
+    }
+
+    if not required_schedule_columns.issubset(
+        forecast_schedule.columns
+    ):
+        raise ValueError(
+            "Forecast schedule must contain estimation "
+            "start and end dates."
+        )
+
+    if not isinstance(asset_returns.index, pd.DatetimeIndex):
+        raise ValueError(
+            "Asset returns must use a DatetimeIndex."
+        )
+
+    if not isinstance(beginning_weights.index, pd.DatetimeIndex):
+        raise ValueError(
+            "Beginning weights must use a DatetimeIndex."
+        )
+
+    if not isinstance(forecast_schedule.index, pd.DatetimeIndex):
+        raise ValueError(
+            "Forecast schedule must use a DatetimeIndex."
+        )
+
+    if asset_returns.index.has_duplicates:
+        raise ValueError(
+            "Asset-return dates must be unique."
+        )
+
+    if beginning_weights.index.has_duplicates:
+        raise ValueError(
+            "Beginning-weight dates must be unique."
+        )
+
+    if forecast_schedule.index.has_duplicates:
+        raise ValueError(
+            "Forecast dates must be unique."
+        )
+
+    if not asset_returns.index.is_monotonic_increasing:
+        raise ValueError(
+            "Asset returns must be ordered by increasing date."
+        )
+
+    if not beginning_weights.index.is_monotonic_increasing:
+        raise ValueError(
+            "Beginning weights must be ordered by increasing date."
+        )
+
+    if set(asset_returns.columns) != set(
+        beginning_weights.columns
+    ):
+        raise ValueError(
+            "Asset returns and beginning weights "
+            "must use the same tickers."
+        )
+
+    records: list[dict[str, float]] = []
+    forecast_keys: list[
+        tuple[pd.Timestamp, float]
+    ] = []
+
+    for forecast_date, schedule_row in (
+        forecast_schedule.iterrows()
+    ):
+        forecast_date = pd.Timestamp(forecast_date)
+        start_date = pd.Timestamp(
+            schedule_row["estimation_start_date"]
+        )
+        end_date = pd.Timestamp(
+            schedule_row["estimation_end_date"]
+        )
+
+        if end_date >= forecast_date:
+            raise ValueError(
+                "Each estimation window must end "
+                "before its forecast date."
+            )
+
+        if (
+            start_date not in asset_returns.index
+            or end_date not in asset_returns.index
+        ):
+            raise ValueError(
+                "Estimation-window dates must exist "
+                "in the asset returns."
+            )
+
+        if forecast_date not in beginning_weights.index:
+            raise ValueError(
+                "Beginning weights are required "
+                "for every forecast date."
+            )
+
+        estimation_returns = asset_returns.loc[
+            start_date:end_date
+        ]
+        forecast_weights = beginning_weights.loc[
+            forecast_date
+        ]
+
+        moments = calculate_sample_portfolio_moments(
+            asset_returns=estimation_returns,
+            weights=forecast_weights,
+        )
+
+        for confidence_level in confidence_levels:
+            forecast = calculate_gaussian_var_es(
+                mean_return=moments.portfolio_mean,
+                volatility=moments.portfolio_volatility,
+                confidence_level=confidence_level,
+            )
+
+            forecast_keys.append(
+                (
+                    forecast_date,
+                    forecast.confidence_level,
+                )
+            )
+            records.append(
+                {
+                    "mean_return": moments.portfolio_mean,
+                    "volatility": (
+                        moments.portfolio_volatility
+                    ),
                     "value_at_risk": (
                         forecast.value_at_risk
                     ),
