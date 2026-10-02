@@ -2,9 +2,15 @@
 
 import numpy as np
 import pandas as pd
+import pytest
+
+from tailrisk.models import (
+    calculate_gaussian_var_es,
+)
 
 from tailrisk.simulation import (
     generate_gaussian_return_scenarios,
+    calculate_gaussian_monte_carlo_var_es,
 )
 
 
@@ -90,3 +96,324 @@ def test_gaussian_scenarios_match_target_moments() -> None:
         rtol=0.0,
         atol=0.000005,
     )
+
+
+
+def test_monte_carlo_var_es_agree_with_analytic_gaussian() -> None:
+    """Monte Carlo risk estimates should approach analytic values."""
+
+    mean_vector = pd.Series(
+        [0.001, -0.0005],
+        index=["A", "B"],
+    )
+    covariance_matrix = pd.DataFrame(
+        [
+            [0.000400, 0.000120],
+            [0.000120, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+
+    # Deliberately reverse the ticker order. The function must align
+    # weights by ticker rather than relying on their position.
+    weights = pd.Series(
+        [0.40, 0.60],
+        index=["B", "A"],
+    )
+
+    result = calculate_gaussian_monte_carlo_var_es(
+        mean_vector=mean_vector,
+        covariance_matrix=covariance_matrix,
+        weights=weights,
+        confidence_level=0.95,
+        scenario_count=250_000,
+        random_seed=20261002,
+    )
+
+    aligned_weights = weights.reindex(
+        mean_vector.index
+    )
+
+    portfolio_mean = float(
+        aligned_weights @ mean_vector
+    )
+    portfolio_variance = float(
+        aligned_weights
+        @ covariance_matrix
+        @ aligned_weights
+    )
+    portfolio_volatility = float(
+        np.sqrt(portfolio_variance)
+    )
+
+    analytic_result = calculate_gaussian_var_es(
+        mean_return=portfolio_mean,
+        volatility=portfolio_volatility,
+        confidence_level=0.95,
+    )
+
+    assert result.confidence_level == pytest.approx(
+        0.95
+    )
+    assert result.scenario_count == 250_000
+    assert result.random_seed == 20261002
+
+    assert result.simulated_mean_return == pytest.approx(
+        portfolio_mean,
+        abs=0.0001,
+    )
+    assert result.simulated_volatility == pytest.approx(
+        portfolio_volatility,
+        abs=0.0001,
+    )
+    assert result.value_at_risk == pytest.approx(
+        analytic_result.value_at_risk,
+        abs=0.0003,
+    )
+    assert result.expected_shortfall == pytest.approx(
+        analytic_result.expected_shortfall,
+        abs=0.0003,
+    )
+
+    assert (
+        result.expected_shortfall
+        > result.value_at_risk
+    )
+
+
+
+
+def _create_monte_carlo_inputs(
+) -> tuple[
+    pd.Series,
+    pd.DataFrame,
+    pd.Series,
+]:
+    mean_vector = pd.Series(
+        [0.001, -0.0005],
+        index=["A", "B"],
+    )
+    covariance_matrix = pd.DataFrame(
+        [
+            [0.000400, 0.000120],
+            [0.000120, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+    weights = pd.Series(
+        [0.60, 0.40],
+        index=["A", "B"],
+    )
+
+    return (
+        mean_vector,
+        covariance_matrix,
+        weights,
+    )
+
+
+def test_monte_carlo_var_es_rejects_mismatched_weight_tickers(
+) -> None:
+    (
+        mean_vector,
+        covariance_matrix,
+        weights,
+    ) = _create_monte_carlo_inputs()
+
+    weights = weights.rename(
+        index={"B": "C"}
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="same tickers",
+    ):
+        calculate_gaussian_monte_carlo_var_es(
+            mean_vector=mean_vector,
+            covariance_matrix=covariance_matrix,
+            weights=weights,
+            confidence_level=0.95,
+            scenario_count=100,
+            random_seed=20261002,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_weight",
+    [
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+)
+def test_monte_carlo_var_es_rejects_nonfinite_weights(
+    invalid_weight: float,
+) -> None:
+    (
+        mean_vector,
+        covariance_matrix,
+        weights,
+    ) = _create_monte_carlo_inputs()
+
+    weights.loc["A"] = invalid_weight
+
+    with pytest.raises(
+        ValueError,
+        match="finite numbers",
+    ):
+        calculate_gaussian_monte_carlo_var_es(
+            mean_vector=mean_vector,
+            covariance_matrix=covariance_matrix,
+            weights=weights,
+            confidence_level=0.95,
+            scenario_count=100,
+            random_seed=20261002,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_confidence_level",
+    [
+        0.0,
+        1.0,
+        np.nan,
+        np.inf,
+        True,
+    ],
+)
+def test_monte_carlo_var_es_rejects_invalid_confidence(
+    invalid_confidence_level: object,
+) -> None:
+    (
+        mean_vector,
+        covariance_matrix,
+        weights,
+    ) = _create_monte_carlo_inputs()
+
+    with pytest.raises(
+        ValueError,
+        match="Confidence level",
+    ):
+        calculate_gaussian_monte_carlo_var_es(
+            mean_vector=mean_vector,
+            covariance_matrix=covariance_matrix,
+            weights=weights,
+            confidence_level=invalid_confidence_level,
+            scenario_count=100,
+            random_seed=20261002,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_scenario_count",
+    [
+        1,
+        0,
+        -1,
+        True,
+        2.5,
+    ],
+)
+def test_monte_carlo_var_es_rejects_invalid_scenario_count(
+    invalid_scenario_count: object,
+) -> None:
+    (
+        mean_vector,
+        covariance_matrix,
+        weights,
+    ) = _create_monte_carlo_inputs()
+
+    with pytest.raises(
+        ValueError,
+        match="at least two",
+    ):
+        calculate_gaussian_monte_carlo_var_es(
+            mean_vector=mean_vector,
+            covariance_matrix=covariance_matrix,
+            weights=weights,
+            confidence_level=0.95,
+            scenario_count=invalid_scenario_count,
+            random_seed=20261002,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_seed",
+    [
+        -1,
+        True,
+        1.5,
+    ],
+)
+def test_monte_carlo_var_es_rejects_invalid_seed(
+    invalid_seed: object,
+) -> None:
+    (
+        mean_vector,
+        covariance_matrix,
+        weights,
+    ) = _create_monte_carlo_inputs()
+
+    with pytest.raises(
+        ValueError,
+        match="non-negative integer",
+    ):
+        calculate_gaussian_monte_carlo_var_es(
+            mean_vector=mean_vector,
+            covariance_matrix=covariance_matrix,
+            weights=weights,
+            confidence_level=0.95,
+            scenario_count=100,
+            random_seed=invalid_seed,
+        )
+
+
+def test_gaussian_scenarios_reject_non_psd_covariance() -> None:
+    (
+        mean_vector,
+        covariance_matrix,
+        _,
+    ) = _create_monte_carlo_inputs()
+
+    covariance_matrix.loc["A", "B"] = 0.0005
+    covariance_matrix.loc["B", "A"] = 0.0005
+
+    with pytest.raises(
+        ValueError,
+        match="positive semidefinite",
+    ):
+        generate_gaussian_return_scenarios(
+            mean_vector=mean_vector,
+            covariance_matrix=covariance_matrix,
+            scenario_count=100,
+            random_seed=20261002,
+        )
+
+
+def test_gaussian_scenarios_require_positive_definite_covariance(
+) -> None:
+    mean_vector = pd.Series(
+        [0.001, 0.0],
+        index=["A", "B"],
+    )
+    singular_covariance = pd.DataFrame(
+        [
+            [0.0004, 0.0],
+            [0.0, 0.0],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="positive definite",
+    ):
+        generate_gaussian_return_scenarios(
+            mean_vector=mean_vector,
+            covariance_matrix=singular_covariance,
+            scenario_count=100,
+            random_seed=20261002,
+        )

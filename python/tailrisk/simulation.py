@@ -1,9 +1,27 @@
 """Gaussian asset-return simulation."""
 
-from numbers import Integral
+from dataclasses import dataclass
+from math import isfinite
+from numbers import Integral, Real
 
 import numpy as np
 import pandas as pd
+
+
+
+@dataclass(frozen=True)
+class GaussianMonteCarloForecast:
+    """Summary of one Gaussian Monte Carlo risk calculation."""
+
+    confidence_level: float
+    scenario_count: int
+    random_seed: int
+    tail_scenario_count: int
+    simulated_mean_return: float
+    simulated_volatility: float
+    value_at_risk: float
+    expected_shortfall: float
+
 
 
 def generate_gaussian_return_scenarios(
@@ -172,3 +190,143 @@ def generate_gaussian_return_scenarios(
     )
 
     return correlated_shocks + mean_values
+
+
+
+
+def calculate_gaussian_monte_carlo_var_es(
+    mean_vector: pd.Series,
+    covariance_matrix: pd.DataFrame,
+    weights: pd.Series,
+    confidence_level: float,
+    scenario_count: int,
+    random_seed: int,
+) -> GaussianMonteCarloForecast:
+    """Estimate portfolio VaR and ES using Gaussian scenarios.
+
+    Asset-return scenarios are combined using ticker-aligned portfolio
+    weights. Returns are converted into losses before the empirical VaR
+    quantile and Expected Shortfall tail average are calculated.
+    """
+
+    if not isinstance(mean_vector, pd.Series):
+        raise TypeError(
+            "Mean vector must be a pandas Series."
+        )
+
+    if not isinstance(weights, pd.Series):
+        raise TypeError(
+            "Portfolio weights must be a pandas Series."
+        )
+
+    if weights.empty:
+        raise ValueError(
+            "Portfolio weights must not be empty."
+        )
+
+    if weights.index.has_duplicates:
+        raise ValueError(
+            "Portfolio-weight tickers must be unique."
+        )
+
+    if set(weights.index) != set(mean_vector.index):
+        raise ValueError(
+            "Portfolio weights and mean vector "
+            "must use the same tickers."
+        )
+
+    if (
+        isinstance(confidence_level, bool)
+        or not isinstance(confidence_level, Real)
+        or not isfinite(confidence_level)
+        or not 0.0 < confidence_level < 1.0
+    ):
+        raise ValueError(
+            "Confidence level must be a finite number "
+            "strictly between 0 and 1."
+        )
+
+    if (
+        isinstance(scenario_count, bool)
+        or not isinstance(scenario_count, Integral)
+        or scenario_count < 2
+    ):
+        raise ValueError(
+            "Scenario count must be an integer "
+            "of at least two."
+        )
+
+    try:
+        aligned_weights = (
+            weights
+            .reindex(mean_vector.index)
+            .astype(float)
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "Portfolio weights must contain "
+            "numeric values."
+        ) from error
+
+    weight_values = aligned_weights.to_numpy(
+        dtype=float
+    )
+
+    if not np.isfinite(weight_values).all():
+        raise ValueError(
+            "Portfolio weights must contain "
+            "finite numbers."
+        )
+
+    asset_return_scenarios = (
+        generate_gaussian_return_scenarios(
+            mean_vector=mean_vector,
+            covariance_matrix=covariance_matrix,
+            scenario_count=int(scenario_count),
+            random_seed=random_seed,
+        )
+    )
+
+    simulated_portfolio_returns = (
+        asset_return_scenarios
+        @ weight_values
+    )
+    simulated_losses = (
+        -simulated_portfolio_returns
+    )
+
+    value_at_risk = float(
+        np.quantile(
+            simulated_losses,
+            float(confidence_level),
+            method="linear",
+        )
+    )
+
+    tail_losses = simulated_losses[
+        simulated_losses >= value_at_risk
+    ]
+
+    expected_shortfall = float(
+        tail_losses.mean()
+    )
+
+    simulated_mean_return = float(
+        simulated_portfolio_returns.mean()
+    )
+    simulated_volatility = float(
+        simulated_portfolio_returns.std(
+            ddof=1
+        )
+    )
+
+    return GaussianMonteCarloForecast(
+        confidence_level=float(confidence_level),
+        scenario_count=int(scenario_count),
+        random_seed=int(random_seed),
+        tail_scenario_count=len(tail_losses),
+        simulated_mean_return=simulated_mean_return,
+        simulated_volatility=simulated_volatility,
+        value_at_risk=value_at_risk,
+        expected_shortfall=expected_shortfall,
+    )
