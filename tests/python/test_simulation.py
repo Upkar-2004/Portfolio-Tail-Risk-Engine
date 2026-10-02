@@ -9,8 +9,9 @@ from tailrisk.models import (
 )
 
 from tailrisk.simulation import (
-    generate_gaussian_return_scenarios,
     calculate_gaussian_monte_carlo_var_es,
+    generate_gaussian_portfolio_losses,
+    generate_gaussian_return_scenarios,
 )
 
 
@@ -417,3 +418,44 @@ def test_gaussian_scenarios_require_positive_definite_covariance(
             scenario_count=100,
             random_seed=20261002,
         )
+
+
+def test_generate_gaussian_portfolio_losses_applies_aligned_weights(
+) -> None:
+    (
+        mean_vector,
+        covariance_matrix,
+        weights,
+    ) = _create_monte_carlo_inputs()
+
+    # Reverse the order to prove that alignment uses ticker names.
+    reversed_weights = weights.iloc[::-1]
+
+    losses = generate_gaussian_portfolio_losses(
+        mean_vector=mean_vector,
+        covariance_matrix=covariance_matrix,
+        weights=reversed_weights,
+        scenario_count=1_000,
+        random_seed=20261002,
+    )
+
+    asset_scenarios = generate_gaussian_return_scenarios(
+        mean_vector=mean_vector,
+        covariance_matrix=covariance_matrix,
+        scenario_count=1_000,
+        random_seed=20261002,
+    )
+    aligned_weights = reversed_weights.reindex(
+        mean_vector.index
+    )
+    expected_losses = -(
+        asset_scenarios
+        @ aligned_weights.to_numpy()
+    )
+
+    assert losses.shape == (1_000,)
+
+    np.testing.assert_array_equal(
+        losses,
+        expected_losses,
+    )

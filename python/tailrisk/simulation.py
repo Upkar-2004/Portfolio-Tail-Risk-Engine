@@ -193,21 +193,14 @@ def generate_gaussian_return_scenarios(
 
 
 
-
-def calculate_gaussian_monte_carlo_var_es(
+def generate_gaussian_portfolio_losses(
     mean_vector: pd.Series,
     covariance_matrix: pd.DataFrame,
     weights: pd.Series,
-    confidence_level: float,
     scenario_count: int,
     random_seed: int,
-) -> GaussianMonteCarloForecast:
-    """Estimate portfolio VaR and ES using Gaussian scenarios.
-
-    Asset-return scenarios are combined using ticker-aligned portfolio
-    weights. Returns are converted into losses before the empirical VaR
-    quantile and Expected Shortfall tail average are calculated.
-    """
+) -> np.ndarray:
+    """Generate one-session Gaussian portfolio-loss scenarios."""
 
     if not isinstance(mean_vector, pd.Series):
         raise TypeError(
@@ -233,27 +226,6 @@ def calculate_gaussian_monte_carlo_var_es(
         raise ValueError(
             "Portfolio weights and mean vector "
             "must use the same tickers."
-        )
-
-    if (
-        isinstance(confidence_level, bool)
-        or not isinstance(confidence_level, Real)
-        or not isfinite(confidence_level)
-        or not 0.0 < confidence_level < 1.0
-    ):
-        raise ValueError(
-            "Confidence level must be a finite number "
-            "strictly between 0 and 1."
-        )
-
-    if (
-        isinstance(scenario_count, bool)
-        or not isinstance(scenario_count, Integral)
-        or scenario_count < 2
-    ):
-        raise ValueError(
-            "Scenario count must be an integer "
-            "of at least two."
         )
 
     try:
@@ -282,7 +254,7 @@ def calculate_gaussian_monte_carlo_var_es(
         generate_gaussian_return_scenarios(
             mean_vector=mean_vector,
             covariance_matrix=covariance_matrix,
-            scenario_count=int(scenario_count),
+            scenario_count=scenario_count,
             random_seed=random_seed,
         )
     )
@@ -291,8 +263,55 @@ def calculate_gaussian_monte_carlo_var_es(
         asset_return_scenarios
         @ weight_values
     )
-    simulated_losses = (
-        -simulated_portfolio_returns
+
+    return -simulated_portfolio_returns
+
+
+def calculate_gaussian_monte_carlo_var_es(
+    mean_vector: pd.Series,
+    covariance_matrix: pd.DataFrame,
+    weights: pd.Series,
+    confidence_level: float,
+    scenario_count: int,
+    random_seed: int,
+) -> GaussianMonteCarloForecast:
+    """Estimate portfolio VaR and ES using Gaussian scenarios.
+
+    The same simulated loss sample supplies the empirical VaR quantile,
+    Expected Shortfall tail average, and simulated portfolio moments.
+    """
+
+    if (
+        isinstance(confidence_level, bool)
+        or not isinstance(confidence_level, Real)
+        or not isfinite(confidence_level)
+        or not 0.0 < confidence_level < 1.0
+    ):
+        raise ValueError(
+            "Confidence level must be a finite number "
+            "strictly between 0 and 1."
+        )
+
+    if (
+        isinstance(scenario_count, bool)
+        or not isinstance(scenario_count, Integral)
+        or scenario_count < 2
+    ):
+        raise ValueError(
+            "Scenario count must be an integer "
+            "of at least two."
+        )
+
+    simulated_losses = generate_gaussian_portfolio_losses(
+        mean_vector=mean_vector,
+        covariance_matrix=covariance_matrix,
+        weights=weights,
+        scenario_count=int(scenario_count),
+        random_seed=random_seed,
+    )
+
+    simulated_portfolio_returns = (
+        -simulated_losses
     )
 
     value_at_risk = float(
