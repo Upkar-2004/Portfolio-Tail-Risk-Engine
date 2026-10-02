@@ -7,8 +7,6 @@ from numbers import Integral, Real
 import numpy as np
 import pandas as pd
 
-
-
 @dataclass(frozen=True)
 class GaussianMonteCarloForecast:
     """Summary of one Gaussian Monte Carlo risk calculation."""
@@ -22,6 +20,16 @@ class GaussianMonteCarloForecast:
     value_at_risk: float
     expected_shortfall: float
 
+
+@dataclass(frozen=True)
+class EmpiricalRiskEstimate:
+    """VaR and Expected Shortfall estimated from observed losses."""
+
+    confidence_level: float
+    observation_count: int
+    tail_observation_count: int
+    value_at_risk: float
+    expected_shortfall: float
 
 
 def generate_gaussian_return_scenarios(
@@ -192,7 +200,6 @@ def generate_gaussian_return_scenarios(
     return correlated_shocks + mean_values
 
 
-
 def generate_gaussian_portfolio_losses(
     mean_vector: pd.Series,
     covariance_matrix: pd.DataFrame,
@@ -267,6 +274,78 @@ def generate_gaussian_portfolio_losses(
     return -simulated_portfolio_returns
 
 
+def calculate_empirical_var_es(
+    losses: np.ndarray,
+    confidence_level: float,
+) -> EmpiricalRiskEstimate:
+    """Calculate empirical VaR and ES from a one-dimensional loss sample."""
+
+    if not isinstance(losses, np.ndarray):
+        raise TypeError(
+            "Losses must be a NumPy array."
+        )
+
+    if losses.ndim != 1:
+        raise ValueError(
+            "Losses must be one-dimensional."
+        )
+
+    if losses.size == 0:
+        raise ValueError(
+            "Losses must not be empty."
+        )
+
+    if (
+        isinstance(confidence_level, bool)
+        or not isinstance(confidence_level, Real)
+        or not isfinite(confidence_level)
+        or not 0.0 < confidence_level < 1.0
+    ):
+        raise ValueError(
+            "Confidence level must be a finite number "
+            "strictly between 0 and 1."
+        )
+
+    try:
+        numeric_losses = losses.astype(
+            float,
+            copy=False,
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "Losses must contain numeric values."
+        ) from error
+
+    if not np.isfinite(numeric_losses).all():
+        raise ValueError(
+            "Losses must contain finite numbers."
+        )
+
+    value_at_risk = float(
+        np.quantile(
+            numeric_losses,
+            float(confidence_level),
+            method="linear",
+        )
+    )
+
+    tail_losses = numeric_losses[
+        numeric_losses >= value_at_risk
+    ]
+
+    expected_shortfall = float(
+        tail_losses.mean()
+    )
+
+    return EmpiricalRiskEstimate(
+        confidence_level=float(confidence_level),
+        observation_count=len(numeric_losses),
+        tail_observation_count=len(tail_losses),
+        value_at_risk=value_at_risk,
+        expected_shortfall=expected_shortfall,
+    )
+
+
 def calculate_gaussian_monte_carlo_var_es(
     mean_vector: pd.Series,
     covariance_matrix: pd.DataFrame,
@@ -314,20 +393,9 @@ def calculate_gaussian_monte_carlo_var_es(
         -simulated_losses
     )
 
-    value_at_risk = float(
-        np.quantile(
-            simulated_losses,
-            float(confidence_level),
-            method="linear",
-        )
-    )
-
-    tail_losses = simulated_losses[
-        simulated_losses >= value_at_risk
-    ]
-
-    expected_shortfall = float(
-        tail_losses.mean()
+    risk_estimate = calculate_empirical_var_es(
+        losses=simulated_losses,
+        confidence_level=confidence_level,
     )
 
     simulated_mean_return = float(
@@ -343,9 +411,13 @@ def calculate_gaussian_monte_carlo_var_es(
         confidence_level=float(confidence_level),
         scenario_count=int(scenario_count),
         random_seed=int(random_seed),
-        tail_scenario_count=len(tail_losses),
+        tail_scenario_count=(
+            risk_estimate.tail_observation_count
+        ),
         simulated_mean_return=simulated_mean_return,
         simulated_volatility=simulated_volatility,
-        value_at_risk=value_at_risk,
-        expected_shortfall=expected_shortfall,
+        value_at_risk=risk_estimate.value_at_risk,
+        expected_shortfall=(
+            risk_estimate.expected_shortfall
+        ),
     )

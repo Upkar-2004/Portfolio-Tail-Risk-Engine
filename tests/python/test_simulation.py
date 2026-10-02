@@ -9,6 +9,7 @@ from tailrisk.models import (
 )
 
 from tailrisk.simulation import (
+    calculate_empirical_var_es,
     calculate_gaussian_monte_carlo_var_es,
     generate_gaussian_portfolio_losses,
     generate_gaussian_return_scenarios,
@@ -459,3 +460,162 @@ def test_generate_gaussian_portfolio_losses_applies_aligned_weights(
         losses,
         expected_losses,
     )
+
+
+def test_calculate_empirical_var_es_matches_manual_losses() -> None:
+    """Verify empirical VaR and ES against a known loss sample."""
+
+    losses = np.array(
+        [
+            -0.02,
+            -0.01,
+            0.00,
+            0.01,
+            0.02,
+            0.03,
+            0.04,
+            0.05,
+            0.06,
+            0.07,
+        ]
+    )
+
+    result = calculate_empirical_var_es(
+        losses=losses,
+        confidence_level=0.80,
+    )
+
+    assert result.confidence_level == pytest.approx(
+        0.80
+    )
+    assert result.observation_count == 10
+    assert result.tail_observation_count == 2
+    assert result.value_at_risk == pytest.approx(
+        0.052
+    )
+    assert result.expected_shortfall == pytest.approx(
+        0.065
+    )
+
+
+
+
+def test_calculate_empirical_var_es_requires_numpy_array() -> None:
+    with pytest.raises(
+        TypeError,
+        match="NumPy array",
+    ):
+        calculate_empirical_var_es(
+            losses=[0.01, 0.02, 0.03],
+            confidence_level=0.95,
+        )
+
+
+def test_calculate_empirical_var_es_requires_one_dimension() -> None:
+    losses = np.array(
+        [
+            [0.01, 0.02],
+            [0.03, 0.04],
+        ]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="one-dimensional",
+    ):
+        calculate_empirical_var_es(
+            losses=losses,
+            confidence_level=0.95,
+        )
+
+
+def test_calculate_empirical_var_es_rejects_empty_losses() -> None:
+    losses = np.array([])
+
+    with pytest.raises(
+        ValueError,
+        match="must not be empty",
+    ):
+        calculate_empirical_var_es(
+            losses=losses,
+            confidence_level=0.95,
+        )
+
+
+@pytest.mark.parametrize(
+    "nonfinite_loss",
+    [
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+)
+def test_calculate_empirical_var_es_rejects_nonfinite_losses(
+    nonfinite_loss: float,
+) -> None:
+    losses = np.array(
+        [
+            0.01,
+            nonfinite_loss,
+            0.03,
+        ]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="finite numbers",
+    ):
+        calculate_empirical_var_es(
+            losses=losses,
+            confidence_level=0.95,
+        )
+
+
+def test_calculate_empirical_var_es_rejects_nonnumeric_losses(
+) -> None:
+    losses = np.array(
+        [
+            "small",
+            "large",
+        ]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="numeric values",
+    ):
+        calculate_empirical_var_es(
+            losses=losses,
+            confidence_level=0.95,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_confidence_level",
+    [
+        0.0,
+        1.0,
+        np.nan,
+        np.inf,
+        True,
+    ],
+)
+def test_calculate_empirical_var_es_rejects_invalid_confidence(
+    invalid_confidence_level: object,
+) -> None:
+    losses = np.array(
+        [
+            0.01,
+            0.02,
+            0.03,
+        ]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Confidence level",
+    ):
+        calculate_empirical_var_es(
+            losses=losses,
+            confidence_level=invalid_confidence_level,
+        )
