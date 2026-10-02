@@ -86,3 +86,8 @@ forecasting:
     - 0.95
     - 0.975
     - 0.99
+
+simulation:
+  scenario_count: 100000
+  random_seed: 20261002
+  reuse_standard_normal_shocks: true

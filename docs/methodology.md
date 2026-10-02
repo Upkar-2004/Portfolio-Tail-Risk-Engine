@@ -180,6 +180,22 @@ forecast session $t$. The portfolio moments are
 These moments are used to calculate one-session Gaussian VaR and Expected
 Shortfall at confidence levels 95%, 97.5%, and 99%.
 
+### 6.1 Gaussian Monte Carlo convention
+
+The baseline rolling simulation uses 100,000 scenarios per forecast date and
+the master random seed 20261002. The seed initializes the pseudorandom-number
+generator so the same experiment can be reproduced exactly.
+
+One matrix of independent standard-normal shocks is generated from the master
+seed and reused across forecast dates. These common random numbers reduce
+artificial changes caused only by simulation noise. The simulated asset returns
+still change by date because each shock matrix is transformed using that date's
+estimated mean vector and covariance matrix.
+
+The 250,000-scenario sample used by the controlled analytic-agreement test is a
+test-specific precision setting. It does not replace the 100,000-scenario
+baseline used by the rolling experiment.
+
 ## 7. Planned model comparison
 
 The models will be developed and evaluated in the following order:
@@ -217,8 +233,6 @@ before the final backtest results are interpreted.
 The following choices remain open and must be documented before the relevant experiments begin:
 
 - missing-data exclusion rules;
-- number of simulation scenarios;
-- random seeds; and
 - statistical-test decision rules.
 
 Material changes to these conventions will be recorded in `docs/decisions.md`.

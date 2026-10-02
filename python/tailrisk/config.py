@@ -13,6 +13,7 @@ _REQUIRED_SECTIONS = frozenset(
         "data",
         "portfolio",
         "forecasting",
+        "simulation",
     }
 )
 
@@ -23,6 +24,16 @@ _REQUIRED_FORECASTING_FIELDS = frozenset(
         "confidence_levels",
     }
 )
+
+
+_REQUIRED_SIMULATION_FIELDS = frozenset(
+    {
+        "scenario_count",
+        "random_seed",
+        "reuse_standard_normal_shocks",
+    }
+)
+
 
 _REQUIRED_PORTFOLIO_FIELDS = frozenset(
     {
@@ -226,6 +237,72 @@ def validate_forecasting_config(
         )
 
 
+
+def validate_simulation_config(
+    simulation: dict[str, Any],
+) -> None:
+    """Validate reproducible Monte Carlo simulation settings."""
+
+    if not isinstance(simulation, dict):
+        raise ValueError(
+            "Simulation configuration must be a mapping."
+        )
+
+    missing_fields = (
+        _REQUIRED_SIMULATION_FIELDS
+        - simulation.keys()
+    )
+
+    if missing_fields:
+        missing_names = ", ".join(
+            sorted(missing_fields)
+        )
+        raise ValueError(
+            "Simulation configuration is missing "
+            f"required field(s): {missing_names}"
+        )
+
+    scenario_count = simulation[
+        "scenario_count"
+    ]
+
+    if (
+        isinstance(scenario_count, bool)
+        or not isinstance(scenario_count, int)
+        or scenario_count < 2
+    ):
+        raise ValueError(
+            "Simulation field 'scenario_count' "
+            "must be an integer of at least two."
+        )
+
+    random_seed = simulation[
+        "random_seed"
+    ]
+
+    if (
+        isinstance(random_seed, bool)
+        or not isinstance(random_seed, int)
+        or random_seed < 0
+    ):
+        raise ValueError(
+            "Simulation field 'random_seed' "
+            "must be a non-negative integer."
+        )
+
+    reuse_shocks = simulation[
+        "reuse_standard_normal_shocks"
+    ]
+
+    if not isinstance(reuse_shocks, bool):
+        raise ValueError(
+            "Simulation field "
+            "'reuse_standard_normal_shocks' "
+            "must be Boolean."
+        )
+
+
+
 def load_config(path: str | Path) -> dict[str, Any]:
     """Load a YAML configuration and validate its top-level structure."""
 
@@ -247,5 +324,6 @@ def load_config(path: str | Path) -> dict[str, Any]:
 
     validate_portfolio_config(config["portfolio"])
     validate_forecasting_config(config["forecasting"])
+    validate_simulation_config(config["simulation"])
 
     return config

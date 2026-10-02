@@ -8,6 +8,7 @@ from tailrisk.config import (
     load_config,
     validate_portfolio_config,
     validate_forecasting_config,
+    validate_simulation_config,
 )
 
 
@@ -21,6 +22,16 @@ def _valid_portfolio_config() -> dict[str, object]:
         "cash_weight": 0.0,
         "initial_value": 1_000_000.0,
         "transaction_cost_bps": 0.0,
+    }
+
+
+def _valid_simulation_config() -> dict[str, object]:
+    """Return valid Monte Carlo simulation settings."""
+
+    return {
+        "scenario_count": 100_000,
+        "random_seed": 20261002,
+        "reuse_standard_normal_shocks": True,
     }
 
 
@@ -66,6 +77,12 @@ forecasting:
     - 0.95
     - 0.975
     - 0.99
+
+simulation:
+  scenario_count: 100000
+  random_seed: 20261002
+  reuse_standard_normal_shocks: true
+
 """,
         encoding="utf-8",
     )
@@ -77,6 +94,7 @@ forecasting:
     assert config["data"]["interval"] == "1d"
     assert config["portfolio"]["rebalancing_frequency"] == "monthly"
     assert config["forecasting"]["estimation_window"] == 504
+    assert config["simulation"]["scenario_count"] == 100_000
 
 
 def test_load_config_rejects_list_at_root(tmp_path: Path) -> None:
@@ -201,3 +219,59 @@ def test_validate_forecasting_config_rejects_invalid_settings(
         match=field,
     ):
         validate_forecasting_config(forecasting)
+
+
+def test_validate_simulation_config_accepts_valid_settings() -> None:
+    simulation = _valid_simulation_config()
+
+    validate_simulation_config(simulation)
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "scenario_count",
+        "random_seed",
+        "reuse_standard_normal_shocks",
+    ],
+)
+def test_validate_simulation_config_rejects_missing_field(
+    missing_field: str,
+) -> None:
+    simulation = _valid_simulation_config()
+    simulation.pop(missing_field)
+
+    with pytest.raises(
+        ValueError,
+        match=missing_field,
+    ):
+        validate_simulation_config(simulation)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("scenario_count", 0),
+        ("scenario_count", -1),
+        ("scenario_count", True),
+        ("scenario_count", 100_000.0),
+        ("random_seed", -1),
+        ("random_seed", True),
+        ("random_seed", 20261002.0),
+        ("reuse_standard_normal_shocks", 1),
+        ("reuse_standard_normal_shocks", "yes"),
+        ("reuse_standard_normal_shocks", None),
+    ],
+)
+def test_validate_simulation_config_rejects_invalid_settings(
+    field: str,
+    value: object,
+) -> None:
+    simulation = _valid_simulation_config()
+    simulation[field] = value
+
+    with pytest.raises(
+        ValueError,
+        match=field,
+    ):
+        validate_simulation_config(simulation)

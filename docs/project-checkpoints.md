@@ -4,10 +4,10 @@ Last updated: 2026-10-02
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
-**Current phase:** Gaussian Monte Carlo reference simulation
+**Current phase:** Gaussian simulation integration and reporting
 
-**Next checkpoint:** Implement deterministic correlated Gaussian simulation in
-Python and compare its VaR and Expected Shortfall with the analytic model.
+**Next checkpoint:** Generate reusable portfolio-loss scenarios and connect the
+Monte Carlo reference to the shared rolling forecast schedule.
 
 ## 1. Project definition and research scope
 
@@ -89,7 +89,7 @@ Python and compare its VaR and Expected Shortfall with the analytic model.
 - [x] Fix the first eligible baseline forecast date at 2012-01-04.
 - [x] Validate the shared forecasting settings in the baseline configuration.
 - [x] Fix covariance-estimation conventions.
-- [ ] Fix simulation counts and random seeds.
+- [x] Fix simulation counts and random seeds.
 - [x] Require verified, finite, complete portfolio returns on eligible forecast dates.
 - [ ] Fix statistical-test decision rules.
 - [ ] Record all finalized decisions before examining comparative model results.
@@ -104,9 +104,9 @@ Python and compare its VaR and Expected Shortfall with the analytic model.
 - [x] Implement rolling asset-level sample mean and covariance estimation.
 - [x] Apply forecast-date portfolio weights to asset-level moments without look-ahead.
 - [x] Validate covariance symmetry, finiteness, and positive semidefiniteness.
-- [ ] Implement a Python Monte Carlo reference simulation.
+- [x] Implement a Python Monte Carlo reference simulation.
 - [x] Test multivariate portfolio mean, variance, VaR, and ES on controlled examples.
-- [ ] Verify agreement between analytic and simulated Gaussian results within a justified tolerance.
+- [x] Verify agreement between analytic and simulated Gaussian results within a justified tolerance.
 
 ## 9. EWMA Gaussian model
 
