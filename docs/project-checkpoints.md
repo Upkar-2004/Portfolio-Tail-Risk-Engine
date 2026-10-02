@@ -1,13 +1,13 @@
 # Project Checkpoints
 
-Last updated: 2026-09-30
+Last updated: 2026-10-02
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
-**Current phase:** Multivariate rolling Gaussian reference model
+**Current phase:** Gaussian Monte Carlo reference simulation
 
-**Next checkpoint:** Review and test mean vectors, sample covariance matrices,
-and portfolio variance using a controlled two-asset example.
+**Next checkpoint:** Implement deterministic correlated Gaussian simulation in
+Python and compare its VaR and Expected Shortfall with the analytic model.
 
 ## 1. Project definition and research scope
 
@@ -88,7 +88,7 @@ and portfolio variance using a controlled two-asset example.
 - [x] Fix the baseline estimation window at 504 sessions.
 - [x] Fix the first eligible baseline forecast date at 2012-01-04.
 - [x] Validate the shared forecasting settings in the baseline configuration.
-- [ ] Fix covariance-estimation conventions.
+- [x] Fix covariance-estimation conventions.
 - [ ] Fix simulation counts and random seeds.
 - [x] Require verified, finite, complete portfolio returns on eligible forecast dates.
 - [ ] Fix statistical-test decision rules.
@@ -99,13 +99,13 @@ and portfolio variance using a controlled two-asset example.
 - [x] Review and test scalar Gaussian return-loss VaR and Expected Shortfall.
 - [x] Implement analytic one-day Gaussian VaR and Expected Shortfall.
 - [x] Implement and test a univariate rolling portfolio-return benchmark.
-- [ ] Review mean vectors, sample covariance matrices, and portfolio variance.
-- [ ] Implement and test one-window multivariate portfolio moments.
-- [ ] Implement rolling asset-level sample mean and covariance estimation.
-- [ ] Apply forecast-date portfolio weights to asset-level moments without look-ahead.
-- [ ] Validate covariance symmetry, finiteness, and positive semidefiniteness.
+- [x] Review mean vectors, sample covariance matrices, and portfolio variance.
+- [x] Implement and test one-window multivariate portfolio moments.
+- [x] Implement rolling asset-level sample mean and covariance estimation.
+- [x] Apply forecast-date portfolio weights to asset-level moments without look-ahead.
+- [x] Validate covariance symmetry, finiteness, and positive semidefiniteness.
 - [ ] Implement a Python Monte Carlo reference simulation.
-- [ ] Test multivariate portfolio mean, variance, VaR, and ES on controlled examples.
+- [x] Test multivariate portfolio mean, variance, VaR, and ES on controlled examples.
 - [ ] Verify agreement between analytic and simulated Gaussian results within a justified tolerance.
 
 ## 9. EWMA Gaussian model

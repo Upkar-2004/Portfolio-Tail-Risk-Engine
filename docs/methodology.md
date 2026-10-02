@@ -128,7 +128,59 @@ The timing sequence is:
 
 Information from session $t+1$ or later must not influence the forecast produced at time $t$. This restriction applies to return calculation, covariance estimation, volatility estimation, model fitting, and portfolio weights.
 
-## 6. Planned model comparison
+In the implementation, a forecast is indexed by the session whose loss will
+be observed. Therefore, the forecast stored for session $t$ uses returns only
+through session $t-1$ and the portfolio weights known at the beginning of
+session $t$.
+
+## 6. Rolling Gaussian estimation convention
+
+The baseline rolling Gaussian model uses the previous 504 trading sessions.
+For forecast session $t$, its estimation sample is
+
+```math
+\mathbf{R}_{t-504},\ldots,\mathbf{R}_{t-1}.
+```
+
+The asset mean vector is the arithmetic sample mean. The covariance estimate
+is the ordinary sample covariance matrix with denominator $504-1$:
+
+```math
+\widehat{\boldsymbol{\Sigma}}_t
+=
+\frac{1}{503}
+\sum_{s=t-504}^{t-1}
+(\mathbf{R}_s-\widehat{\boldsymbol{\mu}}_t)
+(\mathbf{R}_s-\widehat{\boldsymbol{\mu}}_t)^\top.
+```
+
+No shrinkage or exponential weighting is applied in this reference model.
+The matrix must contain finite values, be symmetric, and be positive
+semidefinite within a numerical tolerance.
+
+Let $\mathbf{w}_t$ contain the portfolio weights known at the beginning of
+forecast session $t$. The portfolio moments are
+
+```math
+\widehat{\mu}_{p,t}
+=
+\mathbf{w}_t^\top\widehat{\boldsymbol{\mu}}_t,
+
+\qquad
+
+\widehat{\sigma}_{p,t}
+=
+\sqrt{
+\mathbf{w}_t^\top
+\widehat{\boldsymbol{\Sigma}}_t
+\mathbf{w}_t
+}.
+```
+
+These moments are used to calculate one-session Gaussian VaR and Expected
+Shortfall at confidence levels 95%, 97.5%, and 99%.
+
+## 7. Planned model comparison
 
 The models will be developed and evaluated in the following order:
 
@@ -144,7 +196,7 @@ Comparing filtered historical simulation with the Gaussian models will help exam
 
 Greater complexity will not be treated as evidence of better performance. Calibration must be assessed from the out-of-sample results.
 
-## 7. Evaluation principles
+## 8. Evaluation principles
 
 All models will use matching forecast dates and the same realized portfolio losses.
 
@@ -157,23 +209,14 @@ Fewer exceedances do not automatically indicate a better model. A model can prod
 
 Expected Shortfall evaluation will examine the severity of losses beyond the VaR threshold rather than relying only on the number of VaR exceedances.
 
-The precise statistical tests, confidence levels, estimation windows, and decision rules will be documented before the final backtest results are interpreted.
+The precise statistical tests and their decision rules will be documented
+before the final backtest results are interpreted.
 
-## 8. Decisions still to be finalized
+## 9. Decisions still to be finalized
 
 The following choices remain open and must be documented before the relevant experiments begin:
 
-- asset universe and selection rule;
-- historical sample period;
-- portfolio weights;
-- rebalancing frequency;
-- treatment of cash;
-- portfolio base currency;
-- confidence levels for VaR and Expected Shortfall;
-- estimation-window lengths;
-- covariance-estimation details;
 - missing-data exclusion rules;
-- transaction-cost assumptions;
 - number of simulation scenarios;
 - random seeds; and
 - statistical-test decision rules.

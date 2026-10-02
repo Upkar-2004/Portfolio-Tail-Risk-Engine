@@ -376,3 +376,152 @@ def test_rolling_multivariate_gaussian_forecasts_use_prior_asset_returns(
         ]
         > first_forecast["expected_shortfall"]
     )
+
+
+
+def _create_multivariate_forecast_inputs(
+) -> tuple[
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+]:
+    dates = pd.date_range(
+        "2025-01-02",
+        periods=5,
+        freq="B",
+    )
+
+    asset_returns = pd.DataFrame(
+        {
+            "A": [0.02, 0.00, -0.01, 0.03, 0.01],
+            "B": [0.01, -0.01, 0.00, 0.02, -0.02],
+        },
+        index=dates,
+    )
+
+    beginning_weights = pd.DataFrame(
+        {
+            "A": [0.50, 0.50, 0.50, 0.60, 0.25],
+            "B": [0.50, 0.50, 0.50, 0.40, 0.75],
+        },
+        index=dates,
+    )
+
+    portfolio_returns = (
+        asset_returns * beginning_weights
+    ).sum(axis=1)
+
+    forecast_schedule = create_forecast_schedule(
+        portfolio_returns,
+        estimation_window=3,
+    )
+
+    return (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    )
+
+
+
+def test_rolling_multivariate_forecasts_reject_lookahead() -> None:
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_multivariate_forecast_inputs()
+
+    forecast_date = forecast_schedule.index[0]
+
+    forecast_schedule.loc[
+        forecast_date,
+        "estimation_end_date",
+    ] = forecast_date
+
+    with pytest.raises(
+        ValueError,
+        match="must end before its forecast date",
+    ):
+        calculate_rolling_multivariate_gaussian_forecasts(
+            asset_returns=asset_returns,
+            beginning_weights=beginning_weights,
+            forecast_schedule=forecast_schedule,
+            confidence_levels=[0.95],
+        )
+
+
+def test_rolling_multivariate_forecasts_require_forecast_weights(
+) -> None:
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_multivariate_forecast_inputs()
+
+    missing_date = forecast_schedule.index[0]
+
+    beginning_weights = beginning_weights.drop(
+        index=missing_date
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Beginning weights are required",
+    ):
+        calculate_rolling_multivariate_gaussian_forecasts(
+            asset_returns=asset_returns,
+            beginning_weights=beginning_weights,
+            forecast_schedule=forecast_schedule,
+            confidence_levels=[0.95],
+        )
+
+
+def test_rolling_multivariate_forecasts_reject_ticker_mismatch(
+) -> None:
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_multivariate_forecast_inputs()
+
+    beginning_weights = beginning_weights.rename(
+        columns={"B": "C"}
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="same tickers",
+    ):
+        calculate_rolling_multivariate_gaussian_forecasts(
+            asset_returns=asset_returns,
+            beginning_weights=beginning_weights,
+            forecast_schedule=forecast_schedule,
+            confidence_levels=[0.95],
+        )
+
+
+def test_rolling_multivariate_forecasts_require_estimation_dates(
+) -> None:
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_multivariate_forecast_inputs()
+
+    first_forecast_date = forecast_schedule.index[0]
+
+    forecast_schedule.loc[
+        first_forecast_date,
+        "estimation_start_date",
+    ] = pd.Timestamp("2024-12-31")
+
+    with pytest.raises(
+        ValueError,
+        match="must exist in the asset returns",
+    ):
+        calculate_rolling_multivariate_gaussian_forecasts(
+            asset_returns=asset_returns,
+            beginning_weights=beginning_weights,
+            forecast_schedule=forecast_schedule,
+            confidence_levels=[0.95],
+        )
