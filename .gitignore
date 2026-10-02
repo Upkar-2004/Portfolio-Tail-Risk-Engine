@@ -41,7 +41,6 @@ data/processed/
 data/portfolio/
 
 # Generated reports
-reports/figures/
 reports/tables/
 
 # Editor and operating-system files

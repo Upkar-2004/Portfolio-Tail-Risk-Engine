@@ -20,6 +20,9 @@ from tailrisk.simulation import (
     calculate_empirical_var_es,
     generate_gaussian_portfolio_losses,
 )
+from tailrisk.visualization import (
+    save_gaussian_tail_risk_figure,
+)
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -63,6 +66,13 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Display portfolio weights, asset means, "
             "covariance, and correlation matrices."
+        ),
+    )
+    parser.add_argument(
+        "--figure-output",
+        type=Path,
+        help=(
+            "Optional path for a PNG loss-distribution figure."
         ),
     )
 
@@ -348,6 +358,39 @@ def main() -> None:
                 )
             )
         )
+
+    if args.figure_output is not None:
+        saved_figure = save_gaussian_tail_risk_figure(
+            losses=simulated_losses,
+            analytic_mean_return=moments.portfolio_mean,
+            analytic_volatility=(
+                moments.portfolio_volatility
+            ),
+            analytic_forecasts=tuple(
+                result[1]
+                for result in risk_results
+            ),
+            empirical_estimates=tuple(
+                result[2]
+                for result in risk_results
+            ),
+            realized_loss=float(
+                schedule_row["realized_loss"]
+            ),
+            forecast_date=forecast_date,
+            estimation_start_date=start_date,
+            estimation_end_date=end_date,
+            estimation_observation_count=(
+                len(estimation_returns)
+            ),
+            asset_count=len(
+                estimation_returns.columns
+            ),
+            scenario_count=scenario_count,
+            random_seed=random_seed,
+            output_path=args.figure_output,
+        )
+        print(f"\nFigure saved: {saved_figure}")
 
 
 if __name__ == "__main__":

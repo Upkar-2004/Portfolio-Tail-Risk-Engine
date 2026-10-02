@@ -4,10 +4,10 @@ Last updated: 2026-10-02
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
-**Current phase:** Gaussian simulation integration and reporting
+**Current phase:** Rolling Gaussian forecast integration
 
-**Next checkpoint:** Generate reusable portfolio-loss scenarios and connect the
-Monte Carlo reference to the shared rolling forecast schedule.
+**Next checkpoint:** Generate Gaussian Monte Carlo forecasts across the shared
+rolling schedule and store them with the matching realized losses.
 
 ## 1. Project definition and research scope
 
@@ -107,6 +107,9 @@ Monte Carlo reference to the shared rolling forecast schedule.
 - [x] Implement a Python Monte Carlo reference simulation.
 - [x] Test multivariate portfolio mean, variance, VaR, and ES on controlled examples.
 - [x] Verify agreement between analytic and simulated Gaussian results within a justified tolerance.
+- [x] Generate reusable Gaussian portfolio-loss scenarios.
+- [x] Add a real-data report comparing analytic and Monte Carlo Gaussian estimates.
+- [x] Add a reproducible loss-distribution figure for a selected forecast date.
 
 ## 9. EWMA Gaussian model
 
