@@ -7,6 +7,10 @@ from numbers import Integral, Real
 import numpy as np
 import pandas as pd
 
+from tailrisk.covariance import (
+    calculate_sample_portfolio_moments,
+)
+
 @dataclass(frozen=True)
 class GaussianMonteCarloForecast:
     """Summary of one Gaussian Monte Carlo risk calculation."""
@@ -673,4 +677,314 @@ def calculate_gaussian_monte_carlo_var_es(
         expected_shortfall=(
             risk_estimate.expected_shortfall
         ),
+    )
+
+
+def calculate_rolling_gaussian_monte_carlo_forecasts(
+    asset_returns: pd.DataFrame,
+    beginning_weights: pd.DataFrame,
+    forecast_schedule: pd.DataFrame,
+    confidence_levels: list[float],
+    scenario_count: int,
+    random_seed: int,
+) -> pd.DataFrame:
+    """Calculate rolling Gaussian Monte Carlo portfolio forecasts.
+
+    One matrix of independent standard-normal shocks is generated and
+    reused for every forecast date. Each date uses only its scheduled
+    historical estimation window and its beginning-of-period weights.
+    Results are indexed by forecast date and confidence level.
+    """
+
+    if not isinstance(asset_returns, pd.DataFrame):
+        raise TypeError(
+            "Asset returns must be a pandas DataFrame."
+        )
+
+    if not isinstance(beginning_weights, pd.DataFrame):
+        raise TypeError(
+            "Beginning weights must be a pandas DataFrame."
+        )
+
+    if not isinstance(forecast_schedule, pd.DataFrame):
+        raise TypeError(
+            "Forecast schedule must be a pandas DataFrame."
+        )
+
+    if asset_returns.empty:
+        raise ValueError(
+            "Asset returns must not be empty."
+        )
+
+    if beginning_weights.empty:
+        raise ValueError(
+            "Beginning weights must not be empty."
+        )
+
+    if forecast_schedule.empty:
+        raise ValueError(
+            "Forecast schedule must not be empty."
+        )
+
+    if not confidence_levels:
+        raise ValueError(
+            "At least one confidence level is required."
+        )
+
+    for confidence_level in confidence_levels:
+        if (
+            isinstance(confidence_level, bool)
+            or not isinstance(confidence_level, Real)
+            or not isfinite(confidence_level)
+            or not 0.0 < confidence_level < 1.0
+        ):
+            raise ValueError(
+                "Confidence levels must be finite numbers "
+                "strictly between 0 and 1."
+            )
+
+    if (
+        isinstance(scenario_count, bool)
+        or not isinstance(scenario_count, Integral)
+        or scenario_count < 2
+    ):
+        raise ValueError(
+            "Scenario count must be an integer "
+            "of at least two."
+        )
+
+    if (
+        isinstance(random_seed, bool)
+        or not isinstance(random_seed, Integral)
+        or random_seed < 0
+    ):
+        raise ValueError(
+            "Random seed must be a non-negative integer."
+        )
+
+    required_schedule_columns = {
+        "estimation_start_date",
+        "estimation_end_date",
+        "realized_return",
+        "realized_loss",
+    }
+
+    if not required_schedule_columns.issubset(
+        forecast_schedule.columns
+    ):
+        raise ValueError(
+            "Forecast schedule must contain estimation dates "
+            "and realized return and loss columns."
+        )
+
+    for frame, label in (
+        (asset_returns, "Asset returns"),
+        (beginning_weights, "Beginning weights"),
+        (forecast_schedule, "Forecast schedule"),
+    ):
+        if not isinstance(frame.index, pd.DatetimeIndex):
+            raise ValueError(
+                f"{label} must use a DatetimeIndex."
+            )
+
+        if frame.index.hasnans:
+            raise ValueError(
+                f"{label} dates must not be missing."
+            )
+
+        if frame.index.has_duplicates:
+            raise ValueError(
+                f"{label} dates must be unique."
+            )
+
+        if not frame.index.is_monotonic_increasing:
+            raise ValueError(
+                f"{label} dates must be ordered by increasing date."
+            )
+
+    if asset_returns.columns.has_duplicates:
+        raise ValueError(
+            "Asset-return tickers must be unique."
+        )
+
+    if beginning_weights.columns.has_duplicates:
+        raise ValueError(
+            "Beginning-weight tickers must be unique."
+        )
+
+    if set(asset_returns.columns) != set(
+        beginning_weights.columns
+    ):
+        raise ValueError(
+            "Asset returns and beginning weights "
+            "must use the same tickers."
+        )
+
+    standard_normal_shocks = generate_standard_normal_shocks(
+        scenario_count=int(scenario_count),
+        asset_count=len(asset_returns.columns),
+        random_seed=int(random_seed),
+    )
+
+    records: list[dict[str, object]] = []
+    forecast_keys: list[
+        tuple[pd.Timestamp, float]
+    ] = []
+
+    for forecast_date, schedule_row in (
+        forecast_schedule.iterrows()
+    ):
+        forecast_date = pd.Timestamp(forecast_date)
+        start_date = pd.Timestamp(
+            schedule_row["estimation_start_date"]
+        )
+        end_date = pd.Timestamp(
+            schedule_row["estimation_end_date"]
+        )
+
+        if start_date > end_date:
+            raise ValueError(
+                "Each estimation window must start on or "
+                "before its end date."
+            )
+
+        if end_date >= forecast_date:
+            raise ValueError(
+                "Each estimation window must end "
+                "before its forecast date."
+            )
+
+        if (
+            start_date not in asset_returns.index
+            or end_date not in asset_returns.index
+        ):
+            raise ValueError(
+                "Estimation-window dates must exist "
+                "in the asset returns."
+            )
+
+        if forecast_date not in asset_returns.index:
+            raise ValueError(
+                "Every forecast date must exist "
+                "in the asset returns."
+            )
+
+        if forecast_date not in beginning_weights.index:
+            raise ValueError(
+                "Beginning weights are required "
+                "for every forecast date."
+            )
+
+        try:
+            realized_return = float(
+                schedule_row["realized_return"]
+            )
+            realized_loss = float(
+                schedule_row["realized_loss"]
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "Realized returns and losses must be numeric."
+            ) from error
+
+        if not (
+            isfinite(realized_return)
+            and isfinite(realized_loss)
+        ):
+            raise ValueError(
+                "Realized returns and losses must be finite."
+            )
+
+        if not np.isclose(
+            realized_loss,
+            -realized_return,
+            rtol=1e-12,
+            atol=1e-15,
+        ):
+            raise ValueError(
+                "Each realized loss must equal the negative "
+                "of its realized return."
+            )
+
+        estimation_returns = asset_returns.loc[
+            start_date:end_date
+        ]
+        forecast_weights = beginning_weights.loc[
+            forecast_date
+        ]
+
+        moments = calculate_sample_portfolio_moments(
+            asset_returns=estimation_returns,
+            weights=forecast_weights,
+        )
+
+        simulated_losses = (
+            generate_gaussian_portfolio_losses_from_shocks(
+                mean_vector=moments.mean_vector,
+                covariance_matrix=moments.covariance_matrix,
+                weights=forecast_weights,
+                standard_normal_shocks=(
+                    standard_normal_shocks
+                ),
+            )
+        )
+        simulated_returns = -simulated_losses
+        simulated_mean_return = float(
+            simulated_returns.mean()
+        )
+        simulated_volatility = float(
+            simulated_returns.std(ddof=1)
+        )
+
+        for confidence_level in confidence_levels:
+            estimate = calculate_empirical_var_es(
+                losses=simulated_losses,
+                confidence_level=confidence_level,
+            )
+
+            forecast_keys.append(
+                (
+                    forecast_date,
+                    estimate.confidence_level,
+                )
+            )
+            records.append(
+                {
+                    "estimation_start_date": start_date,
+                    "estimation_end_date": end_date,
+                    "realized_return": realized_return,
+                    "realized_loss": realized_loss,
+                    "simulated_mean_return": (
+                        simulated_mean_return
+                    ),
+                    "simulated_volatility": (
+                        simulated_volatility
+                    ),
+                    "scenario_count": int(scenario_count),
+                    "random_seed": int(random_seed),
+                    "tail_scenario_count": (
+                        estimate.tail_observation_count
+                    ),
+                    "value_at_risk": estimate.value_at_risk,
+                    "expected_shortfall": (
+                        estimate.expected_shortfall
+                    ),
+                    "var_exceedance": bool(
+                        realized_loss
+                        > estimate.value_at_risk
+                    ),
+                }
+            )
+
+    forecast_index = pd.MultiIndex.from_tuples(
+        forecast_keys,
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+
+    return pd.DataFrame(
+        records,
+        index=forecast_index,
     )

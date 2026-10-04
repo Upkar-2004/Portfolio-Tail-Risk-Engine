@@ -4,6 +4,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import tailrisk.simulation as simulation_module
+from tailrisk.backtesting import create_forecast_schedule
+from tailrisk.covariance import (
+    calculate_sample_portfolio_moments,
+)
 from tailrisk.models import (
     calculate_gaussian_var_es,
 )
@@ -11,6 +16,7 @@ from tailrisk.models import (
 from tailrisk.simulation import (
     calculate_empirical_var_es,
     calculate_gaussian_monte_carlo_var_es,
+    calculate_rolling_gaussian_monte_carlo_forecasts,
     generate_gaussian_portfolio_losses,
     generate_gaussian_portfolio_losses_from_shocks,
     generate_gaussian_return_scenarios,
@@ -869,4 +875,248 @@ def test_calculate_empirical_var_es_rejects_invalid_confidence(
         calculate_empirical_var_es(
             losses=losses,
             confidence_level=invalid_confidence_level,
+        )
+
+
+def _create_rolling_monte_carlo_inputs(
+) -> tuple[
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+]:
+    dates = pd.to_datetime(
+        [
+            "2025-01-02",
+            "2025-01-03",
+            "2025-01-06",
+            "2025-01-07",
+            "2025-01-08",
+        ]
+    )
+    asset_returns = pd.DataFrame(
+        {
+            "A": [0.02, 0.00, -0.01, 0.03, 0.01],
+            "B": [0.01, -0.01, 0.00, 0.02, -0.02],
+        },
+        index=dates,
+    )
+    beginning_weights = pd.DataFrame(
+        {
+            "A": [0.50, 0.50, 0.50, 0.60, 0.25],
+            "B": [0.50, 0.50, 0.50, 0.40, 0.75],
+        },
+        index=dates,
+    )
+    portfolio_returns = (
+        asset_returns * beginning_weights
+    ).sum(axis=1)
+    forecast_schedule = create_forecast_schedule(
+        portfolio_returns=portfolio_returns,
+        estimation_window=3,
+    )
+
+    return (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    )
+
+
+def test_rolling_monte_carlo_forecasts_align_results_and_losses(
+) -> None:
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_rolling_monte_carlo_inputs()
+
+    confidence_levels = [0.80, 0.95]
+    scenario_count = 2_000
+    random_seed = 20261002
+
+    result = calculate_rolling_gaussian_monte_carlo_forecasts(
+        asset_returns=asset_returns,
+        beginning_weights=beginning_weights,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
+        scenario_count=scenario_count,
+        random_seed=random_seed,
+    )
+
+    expected_index = pd.MultiIndex.from_product(
+        [
+            forecast_schedule.index,
+            confidence_levels,
+        ],
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+    pd.testing.assert_index_equal(
+        result.index,
+        expected_index,
+    )
+
+    first_forecast_date = forecast_schedule.index[0]
+    first_schedule_row = forecast_schedule.loc[
+        first_forecast_date
+    ]
+    first_result = result.loc[
+        (first_forecast_date, 0.80)
+    ]
+
+    assert first_result["realized_return"] == pytest.approx(
+        first_schedule_row["realized_return"]
+    )
+    assert first_result["realized_loss"] == pytest.approx(
+        first_schedule_row["realized_loss"]
+    )
+    assert first_result["scenario_count"] == scenario_count
+    assert first_result["random_seed"] == random_seed
+
+    estimation_returns = asset_returns.loc[
+        first_schedule_row["estimation_start_date"]:
+        first_schedule_row["estimation_end_date"]
+    ]
+    forecast_weights = beginning_weights.loc[
+        first_forecast_date
+    ]
+    moments = calculate_sample_portfolio_moments(
+        asset_returns=estimation_returns,
+        weights=forecast_weights,
+    )
+    shocks = generate_standard_normal_shocks(
+        scenario_count=scenario_count,
+        asset_count=len(asset_returns.columns),
+        random_seed=random_seed,
+    )
+    expected_losses = (
+        generate_gaussian_portfolio_losses_from_shocks(
+            mean_vector=moments.mean_vector,
+            covariance_matrix=moments.covariance_matrix,
+            weights=forecast_weights,
+            standard_normal_shocks=shocks,
+        )
+    )
+    expected_estimate = calculate_empirical_var_es(
+        losses=expected_losses,
+        confidence_level=0.80,
+    )
+
+    assert first_result["value_at_risk"] == pytest.approx(
+        expected_estimate.value_at_risk
+    )
+    assert first_result["expected_shortfall"] == pytest.approx(
+        expected_estimate.expected_shortfall
+    )
+    assert first_result["var_exceedance"] == (
+        first_schedule_row["realized_loss"]
+        > expected_estimate.value_at_risk
+    )
+
+
+def test_rolling_monte_carlo_forecasts_generate_shocks_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_rolling_monte_carlo_inputs()
+
+    original_generator = (
+        simulation_module.generate_standard_normal_shocks
+    )
+    call_count = 0
+
+    def counting_generator(
+        scenario_count: int,
+        asset_count: int,
+        random_seed: int,
+    ) -> np.ndarray:
+        nonlocal call_count
+        call_count += 1
+        return original_generator(
+            scenario_count=scenario_count,
+            asset_count=asset_count,
+            random_seed=random_seed,
+        )
+
+    monkeypatch.setattr(
+        simulation_module,
+        "generate_standard_normal_shocks",
+        counting_generator,
+    )
+
+    calculate_rolling_gaussian_monte_carlo_forecasts(
+        asset_returns=asset_returns,
+        beginning_weights=beginning_weights,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=[0.95],
+        scenario_count=500,
+        random_seed=20261002,
+    )
+
+    assert call_count == 1
+
+
+def test_rolling_monte_carlo_forecasts_are_reproducible() -> None:
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_rolling_monte_carlo_inputs()
+
+    first_result = (
+        calculate_rolling_gaussian_monte_carlo_forecasts(
+            asset_returns=asset_returns,
+            beginning_weights=beginning_weights,
+            forecast_schedule=forecast_schedule,
+            confidence_levels=[0.80, 0.95],
+            scenario_count=500,
+            random_seed=20261002,
+        )
+    )
+    second_result = (
+        calculate_rolling_gaussian_monte_carlo_forecasts(
+            asset_returns=asset_returns,
+            beginning_weights=beginning_weights,
+            forecast_schedule=forecast_schedule,
+            confidence_levels=[0.80, 0.95],
+            scenario_count=500,
+            random_seed=20261002,
+        )
+    )
+
+    pd.testing.assert_frame_equal(
+        first_result,
+        second_result,
+    )
+
+
+def test_rolling_monte_carlo_forecasts_reject_lookahead() -> None:
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_rolling_monte_carlo_inputs()
+
+    first_forecast_date = forecast_schedule.index[0]
+    forecast_schedule.loc[
+        first_forecast_date,
+        "estimation_end_date",
+    ] = first_forecast_date
+
+    with pytest.raises(
+        ValueError,
+        match="must end before its forecast date",
+    ):
+        calculate_rolling_gaussian_monte_carlo_forecasts(
+            asset_returns=asset_returns,
+            beginning_weights=beginning_weights,
+            forecast_schedule=forecast_schedule,
+            confidence_levels=[0.95],
+            scenario_count=500,
+            random_seed=20261002,
         )

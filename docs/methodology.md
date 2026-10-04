@@ -221,6 +221,10 @@ VaR evaluation will consider both:
 - whether the number of exceedances is consistent with the selected confidence level; and
 - whether exceedances appear independently through time rather than clustering.
 
+A VaR exceedance is recorded when the realized loss is strictly greater than
+the corresponding VaR forecast. Equality with the VaR threshold is not
+classified as an exceedance.
+
 Fewer exceedances do not automatically indicate a better model. A model can produce too few exceedances because it is excessively conservative.
 
 Expected Shortfall evaluation will examine the severity of losses beyond the VaR threshold rather than relying only on the number of VaR exceedances.
