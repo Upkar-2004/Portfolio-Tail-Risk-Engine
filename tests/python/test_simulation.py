@@ -12,8 +12,125 @@ from tailrisk.simulation import (
     calculate_empirical_var_es,
     calculate_gaussian_monte_carlo_var_es,
     generate_gaussian_portfolio_losses,
+    generate_gaussian_portfolio_losses_from_shocks,
     generate_gaussian_return_scenarios,
+    generate_standard_normal_shocks,
 )
+
+
+def test_standard_normal_shocks_have_requested_shape() -> None:
+    shocks = generate_standard_normal_shocks(
+        scenario_count=100,
+        asset_count=3,
+        random_seed=20261002,
+    )
+
+    assert shocks.shape == (100, 3)
+    assert np.isfinite(shocks).all()
+
+
+def test_standard_normal_shocks_are_reproducible() -> None:
+    first_result = generate_standard_normal_shocks(
+        scenario_count=100,
+        asset_count=3,
+        random_seed=20261002,
+    )
+    second_result = generate_standard_normal_shocks(
+        scenario_count=100,
+        asset_count=3,
+        random_seed=20261002,
+    )
+
+    np.testing.assert_array_equal(
+        first_result,
+        second_result,
+    )
+
+
+def test_standard_normal_shocks_change_with_seed() -> None:
+    first_result = generate_standard_normal_shocks(
+        scenario_count=100,
+        asset_count=3,
+        random_seed=20261002,
+    )
+    second_result = generate_standard_normal_shocks(
+        scenario_count=100,
+        asset_count=3,
+        random_seed=20261003,
+    )
+
+    assert not np.array_equal(
+        first_result,
+        second_result,
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid_scenario_count",
+    [
+        0,
+        -1,
+        True,
+        2.5,
+    ],
+)
+def test_standard_normal_shocks_reject_invalid_scenario_count(
+    invalid_scenario_count: object,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="Scenario count",
+    ):
+        generate_standard_normal_shocks(
+            scenario_count=invalid_scenario_count,
+            asset_count=3,
+            random_seed=20261002,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_asset_count",
+    [
+        0,
+        -1,
+        True,
+        2.5,
+    ],
+)
+def test_standard_normal_shocks_reject_invalid_asset_count(
+    invalid_asset_count: object,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="Asset count",
+    ):
+        generate_standard_normal_shocks(
+            scenario_count=100,
+            asset_count=invalid_asset_count,
+            random_seed=20261002,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_seed",
+    [
+        -1,
+        True,
+        1.5,
+    ],
+)
+def test_standard_normal_shocks_reject_invalid_seed(
+    invalid_seed: object,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="Random seed",
+    ):
+        generate_standard_normal_shocks(
+            scenario_count=100,
+            asset_count=3,
+            random_seed=invalid_seed,
+        )
 
 
 def test_gaussian_scenarios_are_reproducible() -> None:
@@ -460,6 +577,140 @@ def test_generate_gaussian_portfolio_losses_applies_aligned_weights(
         losses,
         expected_losses,
     )
+
+
+def test_portfolio_losses_from_shocks_match_full_asset_scenarios(
+) -> None:
+    (
+        mean_vector,
+        covariance_matrix,
+        weights,
+    ) = _create_monte_carlo_inputs()
+
+    # Reverse the order to prove that ticker labels, rather than
+    # positional order, control the weight alignment.
+    reversed_weights = weights.iloc[::-1]
+
+    shocks = generate_standard_normal_shocks(
+        scenario_count=1_000,
+        asset_count=len(mean_vector),
+        random_seed=20261002,
+    )
+
+    projected_losses = (
+        generate_gaussian_portfolio_losses_from_shocks(
+            mean_vector=mean_vector,
+            covariance_matrix=covariance_matrix,
+            weights=reversed_weights,
+            standard_normal_shocks=shocks,
+        )
+    )
+
+    cholesky_factor = np.linalg.cholesky(
+        covariance_matrix.to_numpy(dtype=float)
+    )
+    asset_scenarios = (
+        mean_vector.to_numpy(dtype=float)
+        + shocks @ cholesky_factor.T
+    )
+    aligned_weights = reversed_weights.reindex(
+        mean_vector.index
+    )
+    expected_losses = -(
+        asset_scenarios
+        @ aligned_weights.to_numpy(dtype=float)
+    )
+
+    assert projected_losses.shape == (1_000,)
+
+    np.testing.assert_allclose(
+        projected_losses,
+        expected_losses,
+        rtol=1e-14,
+        atol=1e-15,
+    )
+
+
+def test_portfolio_losses_from_shocks_reject_wrong_asset_count(
+) -> None:
+    (
+        mean_vector,
+        covariance_matrix,
+        weights,
+    ) = _create_monte_carlo_inputs()
+
+    shocks = np.zeros((100, 3))
+
+    with pytest.raises(
+        ValueError,
+        match="Shock columns",
+    ):
+        generate_gaussian_portfolio_losses_from_shocks(
+            mean_vector=mean_vector,
+            covariance_matrix=covariance_matrix,
+            weights=weights,
+            standard_normal_shocks=shocks,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_shocks",
+    [
+        np.array([0.0, 1.0]),
+        np.empty((0, 2)),
+    ],
+)
+def test_portfolio_losses_from_shocks_reject_invalid_shape(
+    invalid_shocks: np.ndarray,
+) -> None:
+    (
+        mean_vector,
+        covariance_matrix,
+        weights,
+    ) = _create_monte_carlo_inputs()
+
+    with pytest.raises(
+        ValueError,
+        match="nonempty two-dimensional",
+    ):
+        generate_gaussian_portfolio_losses_from_shocks(
+            mean_vector=mean_vector,
+            covariance_matrix=covariance_matrix,
+            weights=weights,
+            standard_normal_shocks=invalid_shocks,
+        )
+
+
+@pytest.mark.parametrize(
+    "nonfinite_shock",
+    [
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+)
+def test_portfolio_losses_from_shocks_reject_nonfinite_shocks(
+    nonfinite_shock: float,
+) -> None:
+    (
+        mean_vector,
+        covariance_matrix,
+        weights,
+    ) = _create_monte_carlo_inputs()
+
+    shocks = np.zeros((100, 2))
+    shocks[0, 0] = nonfinite_shock
+
+    with pytest.raises(
+        ValueError,
+        match="finite numbers",
+    ):
+        generate_gaussian_portfolio_losses_from_shocks(
+            mean_vector=mean_vector,
+            covariance_matrix=covariance_matrix,
+            weights=weights,
+            standard_normal_shocks=shocks,
+        )
 
 
 def test_calculate_empirical_var_es_matches_manual_losses() -> None:
