@@ -87,6 +87,12 @@ forecasting:
     - 0.975
     - 0.99
 
+
+models:
+  ewma_gaussian:
+    decay_factor: 0.94
+
+
 simulation:
   scenario_count: 100000
   random_seed: 20261002

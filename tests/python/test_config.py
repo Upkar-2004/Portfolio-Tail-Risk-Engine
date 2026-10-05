@@ -8,6 +8,7 @@ from tailrisk.config import (
     load_config,
     validate_portfolio_config,
     validate_forecasting_config,
+    validate_models_config,
     validate_simulation_config,
 )
 
@@ -49,6 +50,19 @@ def _valid_forecasting_config() -> dict[str, object]:
     }
 
 
+
+def _valid_models_config() -> dict[str, object]:
+    """Return valid model settings for controlled tests."""
+
+    return {
+        "ewma_gaussian": {
+            "decay_factor": 0.94,
+        },
+    }
+
+
+
+
 def test_load_config_returns_mapping(tmp_path: Path) -> None:
     config_path = tmp_path / "valid.yaml"
     config_path.write_text(
@@ -78,6 +92,12 @@ forecasting:
     - 0.975
     - 0.99
 
+
+models:
+  ewma_gaussian:
+    decay_factor: 0.94
+
+
 simulation:
   scenario_count: 100000
   random_seed: 20261002
@@ -94,6 +114,7 @@ simulation:
     assert config["data"]["interval"] == "1d"
     assert config["portfolio"]["rebalancing_frequency"] == "monthly"
     assert config["forecasting"]["estimation_window"] == 504
+    assert config["models"]["ewma_gaussian"]["decay_factor"] == 0.94
     assert config["simulation"]["scenario_count"] == 100_000
 
 
@@ -275,3 +296,113 @@ def test_validate_simulation_config_rejects_invalid_settings(
         match=field,
     ):
         validate_simulation_config(simulation)
+
+
+
+def test_validate_models_config_accepts_valid_settings() -> None:
+    """Verify that a valid EWMA decay factor is accepted."""
+
+    models = _valid_models_config()
+
+    validate_models_config(models)
+
+
+def test_validate_models_config_rejects_missing_model() -> None:
+    """Verify that the EWMA Gaussian model section is required."""
+
+    with pytest.raises(
+        ValueError,
+        match="ewma_gaussian",
+    ):
+        validate_models_config({})
+
+
+def test_validate_models_config_rejects_missing_decay_factor() -> None:
+    """Verify that the EWMA decay factor is required."""
+
+    models = _valid_models_config()
+    models["ewma_gaussian"].pop("decay_factor")
+
+    with pytest.raises(
+        ValueError,
+        match="decay_factor",
+    ):
+        validate_models_config(models)
+
+
+@pytest.mark.parametrize(
+    "decay_factor",
+    [
+        0.0,
+        1.0,
+        -0.01,
+        1.01,
+        True,
+        False,
+        "0.94",
+        None,
+        float("nan"),
+        float("inf"),
+        -float("inf"),
+    ],
+)
+def test_validate_models_config_rejects_invalid_decay_factor(
+    decay_factor: object,
+) -> None:
+    """Verify that decay must be finite, numeric, and strictly bounded."""
+
+    models = _valid_models_config()
+    models["ewma_gaussian"]["decay_factor"] = (
+        decay_factor
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="decay_factor",
+    ):
+        validate_models_config(models)
+
+
+
+@pytest.mark.parametrize(
+    "invalid_models",
+    [
+        None,
+        [],
+        "models",
+    ],
+)
+def test_validate_models_config_requires_mapping(
+    invalid_models: object,
+) -> None:
+    """Verify that model settings must be supplied as a mapping."""
+
+    with pytest.raises(
+        ValueError,
+        match="Models configuration must be a mapping",
+    ):
+        validate_models_config(invalid_models)
+
+
+@pytest.mark.parametrize(
+    "invalid_ewma_config",
+    [
+        None,
+        [],
+        0.94,
+    ],
+)
+def test_validate_models_config_requires_ewma_mapping(
+    invalid_ewma_config: object,
+) -> None:
+    """Verify that EWMA settings must be supplied as a mapping."""
+
+    models = {
+        "ewma_gaussian": invalid_ewma_config,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="EWMA Gaussian configuration must be a mapping",
+    ):
+        validate_models_config(models)

@@ -13,6 +13,7 @@ _REQUIRED_SECTIONS = frozenset(
         "data",
         "portfolio",
         "forecasting",
+        "models",
         "simulation",
     }
 )
@@ -58,6 +59,22 @@ _SUPPORTED_REBALANCING_FREQUENCIES = frozenset(
         "monthly",
     }
 )
+
+
+
+_REQUIRED_MODELS_FIELDS = frozenset(
+    {
+        "ewma_gaussian",
+    }
+)
+
+_REQUIRED_EWMA_GAUSSIAN_FIELDS = frozenset(
+    {
+        "decay_factor",
+    }
+)
+
+
 
 
 def _require_finite_number(
@@ -238,6 +255,73 @@ def validate_forecasting_config(
 
 
 
+
+def validate_models_config(
+    models: dict[str, Any],
+) -> None:
+    """Validate model-specific estimation settings."""
+
+    if not isinstance(models, dict):
+        raise ValueError(
+            "Models configuration must be a mapping."
+        )
+
+    missing_models = (
+        _REQUIRED_MODELS_FIELDS
+        - models.keys()
+    )
+
+    if missing_models:
+        missing_names = ", ".join(
+            sorted(missing_models)
+        )
+        raise ValueError(
+            "Models configuration is missing "
+            f"required model(s): {missing_names}"
+        )
+
+    ewma_gaussian = models["ewma_gaussian"]
+
+    if not isinstance(ewma_gaussian, dict):
+        raise ValueError(
+            "EWMA Gaussian configuration "
+            "must be a mapping."
+        )
+
+    missing_fields = (
+        _REQUIRED_EWMA_GAUSSIAN_FIELDS
+        - ewma_gaussian.keys()
+    )
+
+    if missing_fields:
+        missing_names = ", ".join(
+            sorted(missing_fields)
+        )
+        raise ValueError(
+            "EWMA Gaussian configuration is missing "
+            f"required field(s): {missing_names}"
+        )
+
+    decay_factor = ewma_gaussian[
+        "decay_factor"
+    ]
+
+    if (
+        isinstance(decay_factor, bool)
+        or not isinstance(decay_factor, (int, float))
+        or not isfinite(decay_factor)
+        or not 0.0 < decay_factor < 1.0
+    ):
+        raise ValueError(
+            "EWMA Gaussian field 'decay_factor' "
+            "must be a finite real number strictly "
+            "between 0 and 1."
+        )
+
+
+
+
+
 def validate_simulation_config(
     simulation: dict[str, Any],
 ) -> None:
@@ -324,6 +408,7 @@ def load_config(path: str | Path) -> dict[str, Any]:
 
     validate_portfolio_config(config["portfolio"])
     validate_forecasting_config(config["forecasting"])
+    validate_models_config(config["models"])
     validate_simulation_config(config["simulation"])
 
     return config
