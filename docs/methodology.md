@@ -196,6 +196,118 @@ The 250,000-scenario sample used by the controlled analytic-agreement test is a
 test-specific precision setting. It does not replace the 100,000-scenario
 baseline used by the rolling experiment.
 
+### 6.2 EWMA Gaussian estimation convention
+
+The EWMA Gaussian model changes the covariance estimator while preserving the
+other rolling Gaussian conventions. It uses the same one-session horizon,
+forecast dates, 504-session asset mean, beginning-of-session portfolio
+weights, Gaussian shocks, confidence levels, realized losses, and strict VaR
+exceedance rule. This controlled design is intended to isolate the effect of a
+covariance estimate that responds more strongly to recent return innovations.
+
+The baseline decay parameter is
+
+```math
+\lambda = 0.94.
+```
+
+This value is the conventional daily RiskMetrics choice. It assigns weight
+$1-\lambda=0.06$ to the newest outer product and retains weight $\lambda=0.94$
+on the preceding covariance estimate. It is a precommitted baseline setting,
+not a claim that 0.94 is universally optimal. Alternative decay parameters may
+be examined later as robustness checks without replacing the baseline result.
+
+Let $t_0$ denote the first forecast session. The initial EWMA covariance is the
+ordinary sample covariance from the same 504-session window used by the
+rolling Gaussian model:
+
+```math
+\widehat{\boldsymbol{\Sigma}}^{\mathrm{EWMA}}_{t_0}
+=
+\frac{1}{503}
+\sum_{s=t_0-504}^{t_0-1}
+(\mathbf{R}_s-\widehat{\boldsymbol{\mu}}_{t_0})
+(\mathbf{R}_s-\widehat{\boldsymbol{\mu}}_{t_0})^\top.
+```
+
+This initialization provides finite historical variances and correlations on
+the first forecast date without a zero-risk warm-up or future information.
+After the first forecast, EWMA updates recursively and does not rebuild or
+truncate covariance using a rolling 504-session window. The initialization's
+remaining weight after $k$ updates is $\lambda^k$.
+
+For every forecast session $t$, the asset mean remains the arithmetic mean of
+the 504 returns available before that session:
+
+```math
+\widehat{\boldsymbol{\mu}}_t
+=
+\frac{1}{504}
+\sum_{s=t-504}^{t-1}\mathbf{R}_s.
+```
+
+The mean is deliberately not set to zero or estimated by a second EWMA
+recursion. Retaining the rolling Gaussian mean prevents the model comparison
+from changing both the mean and covariance dynamics at once.
+
+After session $t$ is observed, its innovation is the forecast error
+
+```math
+\mathbf{u}_t
+=
+\mathbf{R}_t
+-
+\widehat{\boldsymbol{\mu}}_t.
+```
+
+The mean in this expression was calculated before session $t$ and excludes
+$\mathbf{R}_t$. The rolling mean subsequently calculated for session $t+1$
+must not be substituted into $\mathbf{u}_t$, because it has already observed
+$\mathbf{R}_t$ and would partly allow the return to explain itself.
+
+The innovation from session $t$ updates the covariance for the next trading
+session only:
+
+```math
+\widehat{\boldsymbol{\Sigma}}^{\mathrm{EWMA}}_{t+1}
+=
+\lambda
+\widehat{\boldsymbol{\Sigma}}^{\mathrm{EWMA}}_t
++
+(1-\lambda)
+\mathbf{u}_t\mathbf{u}_t^\top.
+```
+
+The sequence for each forecast is therefore:
+
+1. Use information through session $t-1$ to calculate
+   $\widehat{\boldsymbol{\mu}}_t$ and obtain
+   $\widehat{\boldsymbol{\Sigma}}^{\mathrm{EWMA}}_t$.
+2. Apply the beginning-of-session weights $\mathbf{w}_t$ and issue the VaR and
+   Expected Shortfall forecast for session $t$.
+3. Observe $\mathbf{R}_t$ and compare the realized loss with the forecast.
+4. Calculate $\mathbf{u}_t$ using the mean that was available before session
+   $t$.
+5. Update the covariance for the next trading session, $t+1$.
+
+Thus, a session's return may evaluate that session's forecast and update the
+next forecast, but it must never influence its own forecast. In particular,
+the first EWMA covariance must not be updated with $\mathbf{R}_{t_0-1}$ after
+initialization because that return is already included in the initial sample
+covariance.
+
+The initial EWMA covariance, rolling mean, portfolio weights, and shared
+standard-normal shocks equal their rolling Gaussian counterparts on $t_0$.
+The two models must therefore produce identical first-date Monte Carlo
+forecasts. They begin to differ only after the first EWMA update. This equality
+will be treated as an implementation invariant.
+
+Each covariance matrix must contain finite values, be symmetric, and be
+positive semidefinite within a numerical tolerance. The recursion preserves
+positive semidefiniteness mathematically because it is a convex combination of
+a positive-semidefinite covariance matrix and the positive-semidefinite outer
+product $\mathbf{u}_t\mathbf{u}_t^\top$.
+
 ## 7. Planned model comparison
 
 The models will be developed and evaluated in the following order:
