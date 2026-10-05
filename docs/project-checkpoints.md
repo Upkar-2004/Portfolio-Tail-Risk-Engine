@@ -1,13 +1,13 @@
 # Project Checkpoints
 
-Last updated: 2026-10-02
+Last updated: 2026-10-04
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
-**Current phase:** Rolling Gaussian forecast integration
+**Current phase:** EWMA Gaussian model planning
 
-**Next checkpoint:** Generate Gaussian Monte Carlo forecasts across the shared
-rolling schedule and store them with the matching realized losses.
+**Next checkpoint:** Review EWMA covariance estimation and document the decay,
+initialization, mean, and forecast-timing conventions before implementation.
 
 ## 1. Project definition and research scope
 
@@ -110,6 +110,8 @@ rolling schedule and store them with the matching realized losses.
 - [x] Generate reusable Gaussian portfolio-loss scenarios.
 - [x] Add a real-data report comparing analytic and Monte Carlo Gaussian estimates.
 - [x] Add a reproducible loss-distribution figure for a selected forecast date.
+- [x] Generate the 100,000-scenario rolling Gaussian baseline across all 3,519 forecast dates.
+- [x] Save and reload-verify Gaussian forecasts, realized losses, exceedances, lineage, and metadata.
 
 ## 9. EWMA Gaussian model
 
@@ -132,7 +134,7 @@ rolling schedule and store them with the matching realized losses.
 - [x] Implement a shared one-step-ahead forecast schedule with no look-ahead.
 - [x] Test forecast-window boundaries, date ordering, and realized-loss alignment.
 - [ ] Use identical forecast dates and realized losses for all models.
-- [ ] Store forecasts, realized losses, exceedances, and model metadata.
+- [x] Store forecasts, realized losses, exceedances, and model metadata.
 - [ ] Run the complete baseline backtest for all three models.
 
 ## 12. Statistical evaluation
