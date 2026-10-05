@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from tailrisk.covariance import (
+    calculate_ewma_covariance_update,
     calculate_sample_portfolio_moments,
 )
 
@@ -226,3 +227,607 @@ def test_sample_portfolio_moments_reject_nonfinite_weights(
             weights,
         )
 
+
+
+
+def test_ewma_covariance_update_matches_manual_example() -> None:
+    """Verify one EWMA update against a manual two-asset calculation."""
+
+    previous_covariance = pd.DataFrame(
+        [
+            [0.000400, 0.000100],
+            [0.000100, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+    innovation = pd.Series(
+        [-0.03, -0.02],
+        index=["A", "B"],
+        name="innovation",
+    )
+
+    result = calculate_ewma_covariance_update(
+        previous_covariance=previous_covariance,
+        innovation=innovation,
+        decay_factor=0.94,
+    )
+
+    expected = pd.DataFrame(
+        [
+            [0.000430, 0.000130],
+            [0.000130, 0.0002355],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+
+    pd.testing.assert_frame_equal(
+        result,
+        expected,
+        check_exact=False,
+        rtol=1e-12,
+        atol=1e-15,
+    )
+
+
+
+def test_ewma_covariance_update_aligns_innovation_by_ticker() -> None:
+    """Verify that innovation order does not change the EWMA update."""
+
+    previous_covariance = pd.DataFrame(
+        [
+            [0.000400, 0.000100],
+            [0.000100, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+    ordered_innovation = pd.Series(
+        [-0.03, -0.02],
+        index=["A", "B"],
+    )
+    reversed_innovation = ordered_innovation.iloc[
+        ::-1
+    ]
+
+    ordered_result = calculate_ewma_covariance_update(
+        previous_covariance=previous_covariance,
+        innovation=ordered_innovation,
+        decay_factor=0.94,
+    )
+    reversed_result = calculate_ewma_covariance_update(
+        previous_covariance=previous_covariance,
+        innovation=reversed_innovation,
+        decay_factor=0.94,
+    )
+
+    pd.testing.assert_frame_equal(
+        reversed_result,
+        ordered_result,
+    )
+
+
+
+def test_ewma_covariance_update_rejects_mismatched_tickers() -> None:
+    """Verify that covariance and innovation tickers must match."""
+
+    previous_covariance = pd.DataFrame(
+        [
+            [0.000400, 0.000100],
+            [0.000100, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+    innovation = pd.Series(
+        [-0.03, -0.02],
+        index=["A", "C"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="same tickers",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=previous_covariance,
+            innovation=innovation,
+            decay_factor=0.94,
+        )
+
+
+def test_ewma_covariance_update_rejects_duplicate_innovation_tickers() -> None:
+    """Verify that each innovation ticker appears exactly once."""
+
+    previous_covariance = pd.DataFrame(
+        [
+            [0.000400, 0.000100],
+            [0.000100, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+    innovation = pd.Series(
+        [-0.03, -0.02],
+        index=["A", "A"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Innovation tickers must be unique",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=previous_covariance,
+            innovation=innovation,
+            decay_factor=0.94,
+        )
+
+
+
+def test_ewma_covariance_update_rejects_mismatched_covariance_tickers() -> None:
+    """Verify that covariance rows and columns use the same tickers."""
+
+    previous_covariance = pd.DataFrame(
+        [
+            [0.000400, 0.000100],
+            [0.000100, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "C"],
+    )
+    innovation = pd.Series(
+        [-0.03, -0.02],
+        index=["A", "C"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Covariance rows and columns must use the same tickers",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=previous_covariance,
+            innovation=innovation,
+            decay_factor=0.94,
+        )
+
+
+def test_ewma_covariance_update_rejects_nonnumeric_covariance() -> None:
+    """Verify that the previous covariance must be numeric."""
+
+    previous_covariance = pd.DataFrame(
+        [
+            ["invalid", 0.000100],
+            [0.000100, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+    innovation = pd.Series(
+        [-0.03, -0.02],
+        index=["A", "B"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Previous covariance must contain numeric values",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=previous_covariance,
+            innovation=innovation,
+            decay_factor=0.94,
+        )
+
+
+
+def test_ewma_covariance_update_rejects_nonnumeric_innovation() -> None:
+    """Verify that the innovation must be numeric."""
+
+    previous_covariance = pd.DataFrame(
+        [
+            [0.000400, 0.000100],
+            [0.000100, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+    innovation = pd.Series(
+        ["invalid", -0.02],
+        index=["A", "B"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Innovation must contain numeric values",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=previous_covariance,
+            innovation=innovation,
+            decay_factor=0.94,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+)
+def test_ewma_covariance_update_rejects_nonfinite_covariance(
+    invalid_value: float,
+) -> None:
+    """Verify that the previous covariance must be finite."""
+
+    previous_covariance = pd.DataFrame(
+        [
+            [invalid_value, 0.000100],
+            [0.000100, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+    innovation = pd.Series(
+        [-0.03, -0.02],
+        index=["A", "B"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Previous covariance must contain finite numbers",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=previous_covariance,
+            innovation=innovation,
+            decay_factor=0.94,
+        )
+
+
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+)
+def test_ewma_covariance_update_rejects_nonfinite_innovation(
+    invalid_value: float,
+) -> None:
+    """Verify that the innovation must be finite."""
+
+    previous_covariance = pd.DataFrame(
+        [
+            [0.000400, 0.000100],
+            [0.000100, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+    innovation = pd.Series(
+        [invalid_value, -0.02],
+        index=["A", "B"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Innovation must contain finite numbers",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=previous_covariance,
+            innovation=innovation,
+            decay_factor=0.94,
+        )
+
+
+
+@pytest.mark.parametrize(
+    "invalid_decay_factor",
+    [
+        0.0,
+        1.0,
+        -0.01,
+        1.01,
+        True,
+        False,
+        "0.94",
+        None,
+        0.94 + 0j,
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+)
+def test_ewma_covariance_update_rejects_invalid_decay_factor(
+    invalid_decay_factor: object,
+) -> None:
+    """Verify that decay must be finite, real, and strictly bounded."""
+
+    previous_covariance = pd.DataFrame(
+        [
+            [0.000400, 0.000100],
+            [0.000100, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+    innovation = pd.Series(
+        [-0.03, -0.02],
+        index=["A", "B"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Decay factor must be a finite real number",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=previous_covariance,
+            innovation=innovation,
+            decay_factor=invalid_decay_factor,
+        )
+
+
+
+def test_ewma_covariance_update_rejects_nonsymmetric_covariance() -> None:
+    """Verify that the previous covariance must be symmetric."""
+
+    previous_covariance = pd.DataFrame(
+        [
+            [0.000400, 0.000100],
+            [0.000200, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+    innovation = pd.Series(
+        [-0.03, -0.02],
+        index=["A", "B"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Previous covariance must be symmetric",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=previous_covariance,
+            innovation=innovation,
+            decay_factor=0.94,
+        )
+
+
+
+def test_ewma_covariance_update_rejects_non_psd_covariance() -> None:
+    """Verify that the previous covariance must be positive semidefinite."""
+
+    previous_covariance = pd.DataFrame(
+        [
+            [0.000100, 0.000200],
+            [0.000200, 0.000100],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+    innovation = pd.Series(
+        [-0.03, -0.02],
+        index=["A", "B"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="positive semidefinite",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=previous_covariance,
+            innovation=innovation,
+            decay_factor=0.94,
+        )
+
+
+def test_ewma_covariance_update_preserves_covariance_properties() -> None:
+    """Verify that an EWMA update remains symmetric and PSD."""
+
+    previous_covariance = pd.DataFrame(
+        [
+            [0.000400, 0.000100],
+            [0.000100, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+    innovation = pd.Series(
+        [-0.03, -0.02],
+        index=["A", "B"],
+    )
+
+    result = calculate_ewma_covariance_update(
+        previous_covariance=previous_covariance,
+        innovation=innovation,
+        decay_factor=0.94,
+    )
+
+    result_values = result.to_numpy(
+        dtype=float
+    )
+
+    assert np.allclose(
+        result_values,
+        result_values.T,
+        rtol=1e-12,
+        atol=1e-15,
+    )
+
+    eigenvalues = np.linalg.eigvalsh(
+        result_values
+    )
+
+    assert np.all(eigenvalues >= -1e-15)
+
+
+
+def test_ewma_covariance_update_rejects_nonfinite_result() -> None:
+    """Verify that numerical overflow cannot produce a saved covariance."""
+
+    previous_covariance = pd.DataFrame(
+        [[1.0]],
+        index=["A"],
+        columns=["A"],
+    )
+    innovation = pd.Series(
+        [1e308],
+        index=["A"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Updated covariance must contain finite numbers",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=previous_covariance,
+            innovation=innovation,
+            decay_factor=0.94,
+        )
+
+
+def test_ewma_covariance_update_requires_dataframe() -> None:
+    """Verify that the previous covariance must be a DataFrame."""
+
+    innovation = pd.Series(
+        [-0.03, -0.02],
+        index=["A", "B"],
+    )
+
+    with pytest.raises(
+        TypeError,
+        match="Previous covariance must be a pandas DataFrame",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=np.eye(2),
+            innovation=innovation,
+            decay_factor=0.94,
+        )
+
+
+def test_ewma_covariance_update_requires_series() -> None:
+    """Verify that the innovation must be a Series."""
+
+    previous_covariance = pd.DataFrame(
+        [
+            [0.000400, 0.000100],
+            [0.000100, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+
+    with pytest.raises(
+        TypeError,
+        match="Innovation must be a pandas Series",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=previous_covariance,
+            innovation=np.array([-0.03, -0.02]),
+            decay_factor=0.94,
+        )
+
+
+def test_ewma_covariance_update_rejects_empty_covariance() -> None:
+    """Verify that the previous covariance must not be empty."""
+
+    innovation = pd.Series(
+        [-0.03],
+        index=["A"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Previous covariance must not be empty",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=pd.DataFrame(),
+            innovation=innovation,
+            decay_factor=0.94,
+        )
+
+
+def test_ewma_covariance_update_rejects_empty_innovation() -> None:
+    """Verify that the innovation must not be empty."""
+
+    previous_covariance = pd.DataFrame(
+        [[0.000400]],
+        index=["A"],
+        columns=["A"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Innovation must not be empty",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=previous_covariance,
+            innovation=pd.Series(dtype=float),
+            decay_factor=0.94,
+        )
+
+
+def test_ewma_covariance_update_rejects_duplicate_covariance_tickers() -> None:
+    """Verify that covariance tickers must be unique."""
+
+    previous_covariance = pd.DataFrame(
+        [
+            [0.000400, 0.000100],
+            [0.000100, 0.000225],
+        ],
+        index=["A", "A"],
+        columns=["A", "B"],
+    )
+    innovation = pd.Series(
+        [-0.03, -0.02],
+        index=["A", "B"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Covariance tickers must be unique",
+    ):
+        calculate_ewma_covariance_update(
+            previous_covariance=previous_covariance,
+            innovation=innovation,
+            decay_factor=0.94,
+        )
+
+
+def test_ewma_covariance_update_aligns_covariance_rows() -> None:
+    """Verify that covariance row order does not change the update."""
+
+    ordered_covariance = pd.DataFrame(
+        [
+            [0.000400, 0.000100],
+            [0.000100, 0.000225],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+    reordered_covariance = ordered_covariance.reindex(
+        index=["B", "A"]
+    )
+    innovation = pd.Series(
+        [-0.03, -0.02],
+        index=["A", "B"],
+    )
+
+    ordered_result = calculate_ewma_covariance_update(
+        previous_covariance=ordered_covariance,
+        innovation=innovation,
+        decay_factor=0.94,
+    )
+    reordered_result = calculate_ewma_covariance_update(
+        previous_covariance=reordered_covariance,
+        innovation=innovation,
+        decay_factor=0.94,
+    )
+
+    pd.testing.assert_frame_equal(
+        reordered_result,
+        ordered_result,
+    )
