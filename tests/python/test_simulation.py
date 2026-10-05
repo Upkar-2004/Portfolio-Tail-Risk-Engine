@@ -5,7 +5,10 @@ import pandas as pd
 import pytest
 
 import tailrisk.simulation as simulation_module
-from tailrisk.backtesting import create_forecast_schedule
+from tailrisk.backtesting import (
+    create_forecast_schedule,
+    validate_backtest_forecasts,
+)
 from tailrisk.covariance import (
     calculate_sample_portfolio_moments,
 )
@@ -941,6 +944,12 @@ def test_rolling_monte_carlo_forecasts_align_results_and_losses(
         confidence_levels=confidence_levels,
         scenario_count=scenario_count,
         random_seed=random_seed,
+    )
+
+    validate_backtest_forecasts(
+        forecasts=result,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
     )
 
     expected_index = pd.MultiIndex.from_product(
