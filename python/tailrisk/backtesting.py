@@ -613,3 +613,121 @@ def save_backtest_metadata(
         stream.write("\n")
 
     return metadata_path
+
+
+def load_backtest_snapshot(
+    snapshot_directory: str | Path,
+    forecast_schedule: pd.DataFrame,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Load, checksum-verify, and validate a backtest snapshot."""
+
+    snapshot_path = Path(snapshot_directory)
+    metadata_path = snapshot_path / "metadata.json"
+
+    with metadata_path.open(
+        "r",
+        encoding="utf-8",
+    ) as stream:
+        metadata = json.load(stream)
+
+    if metadata.get("schema_version") != 1:
+        raise ValueError(
+            "Unsupported backtest metadata schema version."
+        )
+
+    file_metadata = metadata["output"]["file"]
+    forecasts_path = snapshot_path / file_metadata["name"]
+
+    expected_checksum = file_metadata["sha256"]
+    actual_checksum = calculate_file_sha256(
+        forecasts_path
+    )
+
+    if actual_checksum != expected_checksum:
+        raise ValueError(
+            "Backtest forecast snapshot checksum does not match."
+        )
+
+    forecasts = pd.read_csv(
+        forecasts_path,
+        parse_dates=[
+            "forecast_date",
+            "estimation_start_date",
+            "estimation_end_date",
+        ],
+    )
+
+    forecasts = forecasts.set_index(
+        [
+            "forecast_date",
+            "confidence_level",
+        ]
+    )
+
+    confidence_levels = metadata["model"][
+        "confidence_levels"
+    ]
+
+    validate_backtest_forecasts(
+        forecasts=forecasts,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
+    )
+
+    forecast_dates = pd.DatetimeIndex(
+        forecasts.index.get_level_values(
+            "forecast_date"
+        )
+    )
+    output_metadata = metadata["output"]
+
+    if len(forecasts) != output_metadata["rows"]:
+        raise ValueError(
+            "Backtest row count does not match its metadata."
+        )
+
+    if (
+        forecast_dates.nunique()
+        != output_metadata["forecast_dates"]
+    ):
+        raise ValueError(
+            "Backtest forecast-date count does not match "
+            "its metadata."
+        )
+
+    if (
+        forecast_dates.min().date().isoformat()
+        != output_metadata["first_forecast_date"]
+        or forecast_dates.max().date().isoformat()
+        != output_metadata["last_forecast_date"]
+    ):
+        raise ValueError(
+            "Backtest forecast-date boundaries do not match "
+            "their metadata."
+        )
+
+    if list(forecasts.columns) != output_metadata["columns"]:
+        raise ValueError(
+            "Backtest columns do not match their metadata."
+        )
+
+    observed_exceedance_counts = (
+        forecasts["var_exceedance"]
+        .groupby(level="confidence_level")
+        .sum()
+    )
+    expected_exceedance_counts = {
+        str(float(level)): int(count)
+        for level, count in observed_exceedance_counts.items()
+    }
+
+    if (
+        expected_exceedance_counts
+        != output_metadata["exceedance_counts"]
+    ):
+        raise ValueError(
+            "Backtest exceedance counts do not match "
+            "their metadata."
+        )
+
+    return forecasts, metadata

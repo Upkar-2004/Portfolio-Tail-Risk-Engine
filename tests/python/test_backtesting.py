@@ -10,6 +10,7 @@ import numpy as np
 
 from tailrisk.backtesting import (
     create_forecast_schedule,
+    load_backtest_snapshot,
     save_backtest_forecasts,
     save_backtest_metadata,
     validate_backtest_forecasts,
@@ -893,4 +894,154 @@ def test_save_backtest_metadata_rejects_mismatched_lineage(
             source_portfolio_snapshot_id="portfolio-snapshot",
             source_portfolio_metadata=portfolio_metadata,
             generated_at=datetime.now(timezone.utc),
+        )
+
+
+def _save_complete_test_backtest_snapshot(
+    tmp_path: Path,
+) -> tuple[
+    Path,
+    pd.DataFrame,
+    pd.DataFrame,
+]:
+    """Save one complete backtest snapshot for loader tests."""
+
+    (
+        forecasts,
+        forecast_schedule,
+        confidence_levels,
+    ) = _create_valid_backtest_forecasts()
+    (
+        config,
+        returns_metadata,
+        portfolio_metadata,
+    ) = _create_backtest_metadata_inputs()
+    snapshot_id = "test_rolling_gaussian"
+
+    forecasts_path = save_backtest_forecasts(
+        forecasts=forecasts,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
+        output_root=tmp_path,
+        snapshot_id=snapshot_id,
+    )
+    save_backtest_metadata(
+        forecasts_path=forecasts_path,
+        forecasts=forecasts,
+        forecast_schedule=forecast_schedule,
+        config=config,
+        model_name="rolling_gaussian_monte_carlo",
+        source_returns_snapshot_id="returns-snapshot",
+        source_returns_metadata=returns_metadata,
+        source_portfolio_snapshot_id="portfolio-snapshot",
+        source_portfolio_metadata=portfolio_metadata,
+        generated_at=datetime.now(timezone.utc),
+    )
+
+    return (
+        tmp_path / snapshot_id,
+        forecasts,
+        forecast_schedule,
+    )
+
+
+def test_load_backtest_snapshot_round_trips_forecasts(
+    tmp_path: Path,
+) -> None:
+    """Verify that saved forecasts load with their index and values intact."""
+
+    (
+        snapshot_directory,
+        forecasts,
+        forecast_schedule,
+    ) = _save_complete_test_backtest_snapshot(
+        tmp_path
+    )
+
+    loaded_forecasts, metadata = load_backtest_snapshot(
+        snapshot_directory=snapshot_directory,
+        forecast_schedule=forecast_schedule,
+    )
+
+    pd.testing.assert_frame_equal(
+        loaded_forecasts,
+        forecasts,
+    )
+    assert metadata["model"]["name"] == (
+        "rolling_gaussian_monte_carlo"
+    )
+
+
+def test_load_backtest_snapshot_rejects_modified_csv(
+    tmp_path: Path,
+) -> None:
+    """Verify that checksum validation detects modified forecast data."""
+
+    (
+        snapshot_directory,
+        _,
+        forecast_schedule,
+    ) = _save_complete_test_backtest_snapshot(
+        tmp_path
+    )
+    forecasts_path = (
+        snapshot_directory / "forecasts.csv"
+    )
+
+    with forecasts_path.open(
+        "a",
+        encoding="utf-8",
+    ) as stream:
+        stream.write("modified\n")
+
+    with pytest.raises(
+        ValueError,
+        match="checksum does not match",
+    ):
+        load_backtest_snapshot(
+            snapshot_directory=snapshot_directory,
+            forecast_schedule=forecast_schedule,
+        )
+
+
+def test_load_backtest_snapshot_rejects_incorrect_metadata_counts(
+    tmp_path: Path,
+) -> None:
+    """Verify that loader checks the metadata summary against the CSV."""
+
+    (
+        snapshot_directory,
+        _,
+        forecast_schedule,
+    ) = _save_complete_test_backtest_snapshot(
+        tmp_path
+    )
+    metadata_path = snapshot_directory / "metadata.json"
+
+    with metadata_path.open(
+        encoding="utf-8",
+    ) as stream:
+        metadata = json.load(stream)
+
+    metadata["output"]["rows"] = 999
+
+    with metadata_path.open(
+        "w",
+        encoding="utf-8",
+    ) as stream:
+        json.dump(
+            metadata,
+            stream,
+            indent=2,
+            sort_keys=True,
+        )
+        stream.write("\n")
+
+    with pytest.raises(
+        ValueError,
+        match="row count",
+    ):
+        load_backtest_snapshot(
+            snapshot_directory=snapshot_directory,
+            forecast_schedule=forecast_schedule,
         )
