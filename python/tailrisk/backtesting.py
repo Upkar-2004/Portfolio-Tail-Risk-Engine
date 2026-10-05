@@ -1,7 +1,14 @@
 """Time-ordered VaR and Expected Shortfall backtesting."""
 
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+from typing import Any
+
 import numpy as np
 import pandas as pd
+
+from tailrisk.data import calculate_file_sha256
 
 
 def create_forecast_schedule(
@@ -379,3 +386,230 @@ def validate_backtest_forecasts(
             "VaR exceedance indicators are inconsistent "
             "with realized losses and VaR."
         )
+
+
+def save_backtest_forecasts(
+    forecasts: pd.DataFrame,
+    forecast_schedule: pd.DataFrame,
+    confidence_levels: list[float],
+    output_root: str | Path,
+    snapshot_id: str,
+) -> Path:
+    """Save validated forecasts in a new versioned snapshot."""
+
+    validate_backtest_forecasts(
+        forecasts=forecasts,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
+    )
+
+    if not isinstance(snapshot_id, str):
+        raise TypeError(
+            "Snapshot ID must be a string."
+        )
+
+    if not snapshot_id.strip():
+        raise ValueError(
+            "Snapshot ID must not be empty."
+        )
+
+    snapshot_directory = (
+        Path(output_root) / snapshot_id
+    )
+
+    snapshot_directory.mkdir(
+        parents=True,
+        exist_ok=False,
+    )
+
+    forecasts_path = (
+        snapshot_directory / "forecasts.csv"
+    )
+
+    forecasts.to_csv(forecasts_path)
+
+    return forecasts_path
+
+
+def save_backtest_metadata(
+    forecasts_path: str | Path,
+    forecasts: pd.DataFrame,
+    forecast_schedule: pd.DataFrame,
+    config: dict[str, Any],
+    model_name: str,
+    source_returns_snapshot_id: str,
+    source_returns_metadata: dict[str, Any],
+    source_portfolio_snapshot_id: str,
+    source_portfolio_metadata: dict[str, Any],
+    generated_at: datetime,
+) -> Path:
+    """Save backtest settings, lineage, validation, and output metadata."""
+
+    confidence_levels = config["forecasting"][
+        "confidence_levels"
+    ]
+
+    validate_backtest_forecasts(
+        forecasts=forecasts,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
+    )
+
+    output_path = Path(forecasts_path)
+
+    if not output_path.is_file():
+        raise ValueError(
+            "Backtest forecast file does not exist."
+        )
+
+    if not isinstance(model_name, str):
+        raise TypeError(
+            "Model name must be a string."
+        )
+
+    if not model_name.strip():
+        raise ValueError(
+            "Model name must not be empty."
+        )
+
+    if generated_at.utcoffset() is None:
+        raise ValueError(
+            "Backtest generation timestamp must include a time zone."
+        )
+
+    returns_file = source_returns_metadata[
+        "output"
+    ]["file"]
+    portfolio_source = source_portfolio_metadata[
+        "source"
+    ]
+    portfolio_files = source_portfolio_metadata[
+        "output"
+    ]["files"]
+
+    if (
+        portfolio_source["asset_returns_sha256"]
+        != returns_file["sha256"]
+    ):
+        raise ValueError(
+            "Portfolio and return snapshots do not share "
+            "the same asset-return source."
+        )
+
+    forecast_dates = pd.DatetimeIndex(
+        forecasts.index.get_level_values(
+            "forecast_date"
+        )
+    )
+    exceedance_counts = (
+        forecasts["var_exceedance"]
+        .groupby(level="confidence_level")
+        .sum()
+    )
+
+    metadata = {
+        "schema_version": 1,
+        "generated_at_utc": generated_at.astimezone(
+            timezone.utc
+        ).isoformat(),
+        "experiment": config["experiment"]["name"],
+        "model": {
+            "name": model_name,
+            "horizon_sessions": config["forecasting"][
+                "horizon_sessions"
+            ],
+            "estimation_window": config["forecasting"][
+                "estimation_window"
+            ],
+            "confidence_levels": [
+                float(level)
+                for level in confidence_levels
+            ],
+            "loss_unit": "portfolio_return",
+            "loss_sign_convention": (
+                "positive values represent losses"
+            ),
+            "var_exceedance_rule": (
+                "realized_loss > value_at_risk"
+            ),
+        },
+        "simulation": {
+            "scenario_count": config["simulation"][
+                "scenario_count"
+            ],
+            "random_seed": config["simulation"][
+                "random_seed"
+            ],
+            "reuse_standard_normal_shocks": config[
+                "simulation"
+            ]["reuse_standard_normal_shocks"],
+        },
+        "source": {
+            "asset_returns": {
+                "snapshot_id": source_returns_snapshot_id,
+                "file": returns_file["name"],
+                "sha256": returns_file["sha256"],
+            },
+            "portfolio": {
+                "snapshot_id": source_portfolio_snapshot_id,
+                "portfolio_daily_file": portfolio_files[
+                    "portfolio_daily"
+                ]["name"],
+                "portfolio_daily_sha256": portfolio_files[
+                    "portfolio_daily"
+                ]["sha256"],
+                "beginning_weights_file": portfolio_files[
+                    "beginning_weights"
+                ]["name"],
+                "beginning_weights_sha256": portfolio_files[
+                    "beginning_weights"
+                ]["sha256"],
+            },
+        },
+        "output": {
+            "rows": len(forecasts),
+            "forecast_dates": forecast_dates.nunique(),
+            "first_forecast_date": (
+                forecast_dates.min().date().isoformat()
+            ),
+            "last_forecast_date": (
+                forecast_dates.max().date().isoformat()
+            ),
+            "columns": [
+                str(column)
+                for column in forecasts.columns
+            ],
+            "exceedance_counts": {
+                str(float(level)): int(count)
+                for level, count in exceedance_counts.items()
+            },
+            "file": {
+                "name": output_path.name,
+                "sha256": calculate_file_sha256(
+                    output_path
+                ),
+            },
+        },
+        "validation": {
+            "shared_schedule_alignment": True,
+            "finite_numeric_values": True,
+            "realized_loss_sign_checked": True,
+            "var_exceedance_rule_checked": True,
+        },
+    }
+
+    metadata_path = output_path.parent / "metadata.json"
+
+    with metadata_path.open(
+        "x",
+        encoding="utf-8",
+    ) as stream:
+        json.dump(
+            metadata,
+            stream,
+            indent=2,
+            sort_keys=True,
+        )
+        stream.write("\n")
+
+    return metadata_path

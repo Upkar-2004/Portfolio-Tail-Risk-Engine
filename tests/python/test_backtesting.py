@@ -1,13 +1,20 @@
 """Tests for rolling backtests and forecast evaluation."""
 
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+
 import pandas as pd
 import pytest
 import numpy as np
 
 from tailrisk.backtesting import (
     create_forecast_schedule,
+    save_backtest_forecasts,
+    save_backtest_metadata,
     validate_backtest_forecasts,
 )
+from tailrisk.data import calculate_file_sha256
 
 
 def test_create_forecast_schedule_uses_only_prior_returns() -> None:
@@ -538,4 +545,352 @@ def test_validate_backtest_forecasts_rejects_lookahead(
             forecasts,
             forecast_schedule,
             confidence_levels,
+        )
+
+
+def test_save_backtest_forecasts_creates_versioned_csv(
+    tmp_path: Path,
+) -> None:
+    """Verify that valid forecasts are saved in a new snapshot directory."""
+
+    (
+        forecasts,
+        forecast_schedule,
+        confidence_levels,
+    ) = _create_valid_backtest_forecasts()
+
+    forecasts_path = save_backtest_forecasts(
+        forecasts=forecasts,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
+        output_root=tmp_path,
+        snapshot_id="test_rolling_gaussian",
+    )
+
+    assert forecasts_path == (
+        tmp_path
+        / "test_rolling_gaussian"
+        / "forecasts.csv"
+    )
+    assert forecasts_path.is_file()
+
+    saved_forecasts = pd.read_csv(
+        forecasts_path
+    )
+
+    assert len(saved_forecasts) == len(forecasts)
+    assert list(saved_forecasts.columns[:2]) == [
+        "forecast_date",
+        "confidence_level",
+    ]
+
+
+def test_save_backtest_forecasts_does_not_overwrite_snapshot(
+    tmp_path: Path,
+) -> None:
+    """Verify that an existing backtest snapshot cannot be overwritten."""
+
+    (
+        forecasts,
+        forecast_schedule,
+        confidence_levels,
+    ) = _create_valid_backtest_forecasts()
+
+    save_backtest_forecasts(
+        forecasts=forecasts,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
+        output_root=tmp_path,
+        snapshot_id="test_rolling_gaussian",
+    )
+
+    with pytest.raises(FileExistsError):
+        save_backtest_forecasts(
+            forecasts=forecasts,
+            forecast_schedule=forecast_schedule,
+            confidence_levels=confidence_levels,
+            output_root=tmp_path,
+            snapshot_id="test_rolling_gaussian",
+        )
+
+
+def test_save_backtest_forecasts_rejects_invalid_results(
+    tmp_path: Path,
+) -> None:
+    """Verify that invalid forecasts are rejected before files are created."""
+
+    (
+        forecasts,
+        forecast_schedule,
+        confidence_levels,
+    ) = _create_valid_backtest_forecasts()
+
+    forecasts = forecasts.drop(
+        columns="expected_shortfall"
+    )
+
+    snapshot_directory = (
+        tmp_path / "invalid_snapshot"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="missing required column",
+    ):
+        save_backtest_forecasts(
+            forecasts=forecasts,
+            forecast_schedule=forecast_schedule,
+            confidence_levels=confidence_levels,
+            output_root=tmp_path,
+            snapshot_id="invalid_snapshot",
+        )
+
+    assert not snapshot_directory.exists()
+
+
+def _create_backtest_metadata_inputs(
+) -> tuple[
+    dict[str, object],
+    dict[str, object],
+    dict[str, object],
+]:
+    """Create configuration and lineage metadata for persistence tests."""
+
+    config = {
+        "experiment": {
+            "name": "test_experiment",
+        },
+        "forecasting": {
+            "horizon_sessions": 1,
+            "estimation_window": 3,
+            "confidence_levels": [0.95, 0.99],
+        },
+        "simulation": {
+            "scenario_count": 1_000,
+            "random_seed": 20261002,
+            "reuse_standard_normal_shocks": True,
+        },
+    }
+    returns_metadata = {
+        "output": {
+            "file": {
+                "name": "asset_returns.csv",
+                "sha256": "returns-checksum",
+            }
+        }
+    }
+    portfolio_metadata = {
+        "source": {
+            "asset_returns_sha256": "returns-checksum",
+        },
+        "output": {
+            "files": {
+                "portfolio_daily": {
+                    "name": "portfolio_daily.csv",
+                    "sha256": "portfolio-daily-checksum",
+                },
+                "beginning_weights": {
+                    "name": "beginning_weights.csv",
+                    "sha256": "weights-checksum",
+                },
+            }
+        },
+    }
+
+    return (
+        config,
+        returns_metadata,
+        portfolio_metadata,
+    )
+
+
+def test_save_backtest_metadata_records_settings_and_lineage(
+    tmp_path: Path,
+) -> None:
+    """Verify that metadata records settings, lineage, and the CSV checksum."""
+
+    (
+        forecasts,
+        forecast_schedule,
+        confidence_levels,
+    ) = _create_valid_backtest_forecasts()
+    (
+        config,
+        returns_metadata,
+        portfolio_metadata,
+    ) = _create_backtest_metadata_inputs()
+
+    forecasts_path = save_backtest_forecasts(
+        forecasts=forecasts,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
+        output_root=tmp_path,
+        snapshot_id="test_rolling_gaussian",
+    )
+    generated_at = datetime(
+        2026,
+        10,
+        4,
+        18,
+        30,
+        tzinfo=timezone.utc,
+    )
+
+    metadata_path = save_backtest_metadata(
+        forecasts_path=forecasts_path,
+        forecasts=forecasts,
+        forecast_schedule=forecast_schedule,
+        config=config,
+        model_name="rolling_gaussian_monte_carlo",
+        source_returns_snapshot_id="returns-snapshot",
+        source_returns_metadata=returns_metadata,
+        source_portfolio_snapshot_id="portfolio-snapshot",
+        source_portfolio_metadata=portfolio_metadata,
+        generated_at=generated_at,
+    )
+
+    assert metadata_path == (
+        forecasts_path.parent / "metadata.json"
+    )
+    assert metadata_path.is_file()
+
+    with metadata_path.open(
+        encoding="utf-8",
+    ) as stream:
+        metadata = json.load(stream)
+
+    assert metadata["schema_version"] == 1
+    assert metadata["experiment"] == "test_experiment"
+    assert metadata["generated_at_utc"] == (
+        "2026-10-04T18:30:00+00:00"
+    )
+    assert metadata["model"]["name"] == (
+        "rolling_gaussian_monte_carlo"
+    )
+    assert metadata["model"]["confidence_levels"] == [
+        0.95,
+        0.99,
+    ]
+    assert metadata["simulation"] == {
+        "scenario_count": 1_000,
+        "random_seed": 20261002,
+        "reuse_standard_normal_shocks": True,
+    }
+    assert metadata["source"]["asset_returns"] == {
+        "snapshot_id": "returns-snapshot",
+        "file": "asset_returns.csv",
+        "sha256": "returns-checksum",
+    }
+    assert metadata["source"]["portfolio"] == {
+        "snapshot_id": "portfolio-snapshot",
+        "portfolio_daily_file": "portfolio_daily.csv",
+        "portfolio_daily_sha256": (
+            "portfolio-daily-checksum"
+        ),
+        "beginning_weights_file": "beginning_weights.csv",
+        "beginning_weights_sha256": "weights-checksum",
+    }
+    assert metadata["output"]["rows"] == 4
+    assert metadata["output"]["forecast_dates"] == 2
+    assert metadata["output"]["first_forecast_date"] == (
+        "2025-01-07"
+    )
+    assert metadata["output"]["last_forecast_date"] == (
+        "2025-01-08"
+    )
+    assert metadata["output"]["exceedance_counts"] == {
+        "0.95": 1,
+        "0.99": 0,
+    }
+    assert metadata["output"]["file"] == {
+        "name": "forecasts.csv",
+        "sha256": calculate_file_sha256(
+            forecasts_path
+        ),
+    }
+
+
+def test_save_backtest_metadata_requires_timezone(
+    tmp_path: Path,
+) -> None:
+    """Verify that backtest metadata timestamps include a time zone."""
+
+    (
+        forecasts,
+        forecast_schedule,
+        confidence_levels,
+    ) = _create_valid_backtest_forecasts()
+    (
+        config,
+        returns_metadata,
+        portfolio_metadata,
+    ) = _create_backtest_metadata_inputs()
+    forecasts_path = save_backtest_forecasts(
+        forecasts=forecasts,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
+        output_root=tmp_path,
+        snapshot_id="test_rolling_gaussian",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="include a time zone",
+    ):
+        save_backtest_metadata(
+            forecasts_path=forecasts_path,
+            forecasts=forecasts,
+            forecast_schedule=forecast_schedule,
+            config=config,
+            model_name="rolling_gaussian_monte_carlo",
+            source_returns_snapshot_id="returns-snapshot",
+            source_returns_metadata=returns_metadata,
+            source_portfolio_snapshot_id="portfolio-snapshot",
+            source_portfolio_metadata=portfolio_metadata,
+            generated_at=datetime(2026, 10, 4, 18, 30),
+        )
+
+
+def test_save_backtest_metadata_rejects_mismatched_lineage(
+    tmp_path: Path,
+) -> None:
+    """Verify that portfolio and return snapshots share one return source."""
+
+    (
+        forecasts,
+        forecast_schedule,
+        confidence_levels,
+    ) = _create_valid_backtest_forecasts()
+    (
+        config,
+        returns_metadata,
+        portfolio_metadata,
+    ) = _create_backtest_metadata_inputs()
+    portfolio_metadata["source"][
+        "asset_returns_sha256"
+    ] = "different-checksum"
+
+    forecasts_path = save_backtest_forecasts(
+        forecasts=forecasts,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
+        output_root=tmp_path,
+        snapshot_id="test_rolling_gaussian",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="do not share",
+    ):
+        save_backtest_metadata(
+            forecasts_path=forecasts_path,
+            forecasts=forecasts,
+            forecast_schedule=forecast_schedule,
+            config=config,
+            model_name="rolling_gaussian_monte_carlo",
+            source_returns_snapshot_id="returns-snapshot",
+            source_returns_metadata=returns_metadata,
+            source_portfolio_snapshot_id="portfolio-snapshot",
+            source_portfolio_metadata=portfolio_metadata,
+            generated_at=datetime.now(timezone.utc),
         )

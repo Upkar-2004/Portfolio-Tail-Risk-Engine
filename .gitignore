@@ -39,6 +39,7 @@ data/raw/
 data/interim/
 data/processed/
 data/portfolio/
+data/backtests/
 
 # Generated reports
 reports/tables/
