@@ -1,9 +1,11 @@
-"""Run and persist the rolling Gaussian Monte Carlo backtest."""
+"""Run and persist a Gaussian Monte Carlo backtest."""
 
 import argparse
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
+
+import pandas as pd
 
 from tailrisk.backtesting import (
     create_forecast_schedule,
@@ -19,6 +21,7 @@ from tailrisk.config import (
 from tailrisk.portfolio import load_portfolio_path
 from tailrisk.returns import load_processed_returns
 from tailrisk.simulation import (
+    calculate_ewma_gaussian_monte_carlo_forecasts,
     calculate_rolling_gaussian_monte_carlo_forecasts,
 )
 
@@ -26,7 +29,12 @@ from tailrisk.simulation import (
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _CONFIG_PATH = _PROJECT_ROOT / "configs" / "baseline.yaml"
 _BACKTEST_DATA_ROOT = _PROJECT_ROOT / "data" / "backtests"
-_MODEL_NAME = "rolling_gaussian_monte_carlo"
+_ROLLING_MODEL = "rolling-gaussian"
+_EWMA_MODEL = "ewma-gaussian"
+_MODEL_NAMES = {
+    _ROLLING_MODEL: "rolling_gaussian_monte_carlo",
+    _EWMA_MODEL: "ewma_gaussian_monte_carlo",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,7 +42,7 @@ def parse_args() -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Run and save the rolling Gaussian Monte Carlo backtest."
+            "Run and save a Gaussian Monte Carlo backtest."
         )
     )
     parser.add_argument(
@@ -46,6 +54,14 @@ def parse_args() -> argparse.Namespace:
         "portfolio_snapshot",
         type=Path,
         help="Path to the portfolio-path snapshot.",
+    )
+    parser.add_argument(
+        "--model",
+        choices=tuple(_MODEL_NAMES),
+        default=_ROLLING_MODEL,
+        help=(
+            "Gaussian model to run. Defaults to rolling-gaussian."
+        ),
     )
     parser.add_argument(
         "--config",
@@ -75,6 +91,43 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def calculate_model_forecasts(
+    model: str,
+    asset_returns: pd.DataFrame,
+    beginning_weights: pd.DataFrame,
+    forecast_schedule: pd.DataFrame,
+    confidence_levels: list[float],
+    scenario_count: int,
+    random_seed: int,
+    decay_factor: float,
+) -> pd.DataFrame:
+    """Route validated inputs to the selected Gaussian model."""
+
+    common_arguments = {
+        "asset_returns": asset_returns,
+        "beginning_weights": beginning_weights,
+        "forecast_schedule": forecast_schedule,
+        "confidence_levels": confidence_levels,
+        "scenario_count": scenario_count,
+        "random_seed": random_seed,
+    }
+
+    if model == _ROLLING_MODEL:
+        return calculate_rolling_gaussian_monte_carlo_forecasts(
+            **common_arguments,
+        )
+
+    if model == _EWMA_MODEL:
+        return calculate_ewma_gaussian_monte_carlo_forecasts(
+            **common_arguments,
+            decay_factor=decay_factor,
+        )
+
+    raise ValueError(
+        f"Unsupported Gaussian model: {model}."
+    )
+
+
 def main() -> None:
     """Run, save, and reload-verify the Gaussian backtest."""
 
@@ -93,7 +146,7 @@ def main() -> None:
         "reuse_standard_normal_shocks"
     ]:
         raise ValueError(
-            "The rolling Gaussian backtest requires shared "
+            "The Gaussian backtest requires shared "
             "standard-normal shocks."
         )
 
@@ -152,22 +205,26 @@ def main() -> None:
             "estimation_window"
         ],
     )
-    forecasts = (
-        calculate_rolling_gaussian_monte_carlo_forecasts(
-            asset_returns=asset_returns,
-            beginning_weights=(
-                portfolio_path.beginning_weights
-            ),
-            forecast_schedule=forecast_schedule,
-            confidence_levels=confidence_levels,
-            scenario_count=simulation_config[
-                "scenario_count"
-            ],
-            random_seed=simulation_config[
-                "random_seed"
-            ],
-        )
+    forecasts = calculate_model_forecasts(
+        model=args.model,
+        asset_returns=asset_returns,
+        beginning_weights=(
+            portfolio_path.beginning_weights
+        ),
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
+        scenario_count=simulation_config[
+            "scenario_count"
+        ],
+        random_seed=simulation_config[
+            "random_seed"
+        ],
+        decay_factor=config["models"][
+            "ewma_gaussian"
+        ]["decay_factor"],
     )
+
+    model_name = _MODEL_NAMES[args.model]
 
     validate_backtest_forecasts(
         forecasts=forecasts,
@@ -183,7 +240,7 @@ def main() -> None:
         snapshot_id = (
             f"{timestamp}_"
             f"{config['experiment']['name']}_"
-            f"{_MODEL_NAME}"
+            f"{model_name}"
         )
 
     forecasts_path = save_backtest_forecasts(
@@ -198,7 +255,7 @@ def main() -> None:
         forecasts=forecasts,
         forecast_schedule=forecast_schedule,
         config=config,
-        model_name=_MODEL_NAME,
+        model_name=model_name,
         source_returns_snapshot_id=(
             args.processed_snapshot.name
         ),
@@ -215,7 +272,7 @@ def main() -> None:
         forecast_schedule=forecast_schedule,
     )
 
-    print("Rolling Gaussian Monte Carlo backtest")
+    print(f"{args.model} Monte Carlo backtest")
     print(
         "Forecast dates:",
         f"{forecast_schedule.index[0].date()} to "
@@ -237,6 +294,13 @@ def main() -> None:
         "Random seed:",
         simulation_config["random_seed"],
     )
+    if args.model == _EWMA_MODEL:
+        print(
+            "EWMA decay factor:",
+            config["models"]["ewma_gaussian"][
+                "decay_factor"
+            ],
+        )
 
     exceedance_counts = (
         verified_forecasts["var_exceedance"]

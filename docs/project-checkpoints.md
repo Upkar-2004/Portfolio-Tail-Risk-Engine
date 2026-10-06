@@ -4,11 +4,11 @@ Last updated: 2026-10-06
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
-**Current phase:** EWMA Gaussian baseline workflow
+**Current phase:** EWMA Gaussian baseline execution
 
-**Next checkpoint:** Add a config-driven EWMA backtest command that loads
-verified inputs, runs the configured forecast sequence, saves forecasts and
-metadata, and reload-verifies the resulting snapshot.
+**Next checkpoint:** Run the configured 100,000-scenario EWMA Gaussian baseline
+across all eligible forecast dates, save its forecasts and metadata, and
+reload-verify the resulting snapshot.
 
 ## 1. Project definition and research scope
 
@@ -128,7 +128,8 @@ metadata, and reload-verifies the resulting snapshot.
 - [x] Implement EWMA Gaussian VaR and ES forecasts.
 - [x] Test first-date initialization, recursive forecasting, shared shocks,
   backtest alignment, reproducibility, and decay-factor validation.
-- [ ] Add a reproducible command for the configured EWMA Gaussian backtest.
+- [x] Add and test a reproducible command for the configured EWMA Gaussian
+  backtest.
 - [ ] Generate the 100,000-scenario EWMA Gaussian baseline across all eligible
   forecast dates.
 - [ ] Save and reload-verify EWMA forecasts, realized losses, exceedances,
