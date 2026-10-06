@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from tailrisk.covariance import (
+    calculate_ewma_covariance_sequence,
     calculate_sample_portfolio_moments,
 )
 
@@ -680,15 +681,18 @@ def calculate_gaussian_monte_carlo_var_es(
     )
 
 
-def calculate_rolling_gaussian_monte_carlo_forecasts(
+def _calculate_gaussian_monte_carlo_forecasts(
     asset_returns: pd.DataFrame,
     beginning_weights: pd.DataFrame,
     forecast_schedule: pd.DataFrame,
     confidence_levels: list[float],
     scenario_count: int,
     random_seed: int,
+    covariance_sequence: (
+        dict[pd.Timestamp, pd.DataFrame] | None
+    ),
 ) -> pd.DataFrame:
-    """Calculate rolling Gaussian Monte Carlo portfolio forecasts.
+    """Calculate Gaussian forecasts using the supplied covariances.
 
     One matrix of independent standard-normal shocks is generated and
     reused for every forecast date. Each date uses only its scheduled
@@ -913,15 +917,23 @@ def calculate_rolling_gaussian_monte_carlo_forecasts(
             forecast_date
         ]
 
-        moments = calculate_sample_portfolio_moments(
-            asset_returns=estimation_returns,
-            weights=forecast_weights,
-        )
+        if covariance_sequence is None:
+            moments = calculate_sample_portfolio_moments(
+                asset_returns=estimation_returns,
+                weights=forecast_weights,
+            )
+            mean_vector = moments.mean_vector
+            covariance_matrix = moments.covariance_matrix
+        else:
+            mean_vector = estimation_returns.mean()
+            covariance_matrix = covariance_sequence[
+                forecast_date
+            ]
 
         simulated_losses = (
             generate_gaussian_portfolio_losses_from_shocks(
-                mean_vector=moments.mean_vector,
-                covariance_matrix=moments.covariance_matrix,
+                mean_vector=mean_vector,
+                covariance_matrix=covariance_matrix,
                 weights=forecast_weights,
                 standard_normal_shocks=(
                     standard_normal_shocks
@@ -987,4 +999,53 @@ def calculate_rolling_gaussian_monte_carlo_forecasts(
     return pd.DataFrame(
         records,
         index=forecast_index,
+    )
+
+
+def calculate_rolling_gaussian_monte_carlo_forecasts(
+    asset_returns: pd.DataFrame,
+    beginning_weights: pd.DataFrame,
+    forecast_schedule: pd.DataFrame,
+    confidence_levels: list[float],
+    scenario_count: int,
+    random_seed: int,
+) -> pd.DataFrame:
+    """Calculate rolling Gaussian Monte Carlo forecasts."""
+
+    return _calculate_gaussian_monte_carlo_forecasts(
+        asset_returns=asset_returns,
+        beginning_weights=beginning_weights,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
+        scenario_count=scenario_count,
+        random_seed=random_seed,
+        covariance_sequence=None,
+    )
+
+
+def calculate_ewma_gaussian_monte_carlo_forecasts(
+    asset_returns: pd.DataFrame,
+    beginning_weights: pd.DataFrame,
+    forecast_schedule: pd.DataFrame,
+    confidence_levels: list[float],
+    scenario_count: int,
+    random_seed: int,
+    decay_factor: float,
+) -> pd.DataFrame:
+    """Calculate EWMA Gaussian Monte Carlo forecasts."""
+
+    covariance_sequence = calculate_ewma_covariance_sequence(
+        asset_returns=asset_returns,
+        forecast_schedule=forecast_schedule,
+        decay_factor=decay_factor,
+    )
+
+    return _calculate_gaussian_monte_carlo_forecasts(
+        asset_returns=asset_returns,
+        beginning_weights=beginning_weights,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
+        scenario_count=scenario_count,
+        random_seed=random_seed,
+        covariance_sequence=covariance_sequence,
     )

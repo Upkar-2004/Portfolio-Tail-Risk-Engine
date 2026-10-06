@@ -18,6 +18,7 @@ from tailrisk.models import (
 
 from tailrisk.simulation import (
     calculate_empirical_var_es,
+    calculate_ewma_gaussian_monte_carlo_forecasts,
     calculate_gaussian_monte_carlo_var_es,
     calculate_rolling_gaussian_monte_carlo_forecasts,
     generate_gaussian_portfolio_losses,
@@ -1128,4 +1129,332 @@ def test_rolling_monte_carlo_forecasts_reject_lookahead() -> None:
             confidence_levels=[0.95],
             scenario_count=500,
             random_seed=20261002,
+        )
+
+
+def test_ewma_first_forecast_matches_rolling_gaussian() -> None:
+    """The initialized EWMA forecast matches the rolling model."""
+
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_rolling_monte_carlo_inputs()
+
+    common_arguments = {
+        "asset_returns": asset_returns,
+        "beginning_weights": beginning_weights,
+        "forecast_schedule": forecast_schedule,
+        "confidence_levels": [0.80, 0.95],
+        "scenario_count": 2_000,
+        "random_seed": 20261002,
+    }
+
+    rolling_result = (
+        calculate_rolling_gaussian_monte_carlo_forecasts(
+            **common_arguments,
+        )
+    )
+    ewma_result = (
+        calculate_ewma_gaussian_monte_carlo_forecasts(
+            **common_arguments,
+            decay_factor=0.94,
+        )
+    )
+
+    first_forecast_date = forecast_schedule.index[0]
+
+    pd.testing.assert_frame_equal(
+        ewma_result.loc[[first_forecast_date]],
+        rolling_result.loc[[first_forecast_date]],
+    )
+
+
+def test_ewma_second_forecast_uses_updated_covariance() -> None:
+    """The second EWMA forecast uses the first innovation update."""
+
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_rolling_monte_carlo_inputs()
+
+    decay_factor = 0.94
+    scenario_count = 2_000
+    random_seed = 20261002
+    confidence_level = 0.95
+
+    result = calculate_ewma_gaussian_monte_carlo_forecasts(
+        asset_returns=asset_returns,
+        beginning_weights=beginning_weights,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=[confidence_level],
+        scenario_count=scenario_count,
+        random_seed=random_seed,
+        decay_factor=decay_factor,
+    )
+
+    first_forecast_date = forecast_schedule.index[0]
+    first_schedule_row = forecast_schedule.iloc[0]
+    first_estimation_returns = asset_returns.loc[
+        first_schedule_row["estimation_start_date"]:
+        first_schedule_row["estimation_end_date"]
+    ]
+    initial_covariance = first_estimation_returns.cov(
+        ddof=1
+    )
+    first_rolling_mean = first_estimation_returns.mean()
+    first_innovation = (
+        asset_returns.loc[first_forecast_date]
+        - first_rolling_mean
+    )
+    innovation_outer_product = pd.DataFrame(
+        np.outer(first_innovation, first_innovation),
+        index=asset_returns.columns,
+        columns=asset_returns.columns,
+    )
+    expected_second_covariance = (
+        decay_factor * initial_covariance
+        + (1.0 - decay_factor)
+        * innovation_outer_product
+    )
+
+    second_forecast_date = forecast_schedule.index[1]
+    second_schedule_row = forecast_schedule.iloc[1]
+    second_estimation_returns = asset_returns.loc[
+        second_schedule_row["estimation_start_date"]:
+        second_schedule_row["estimation_end_date"]
+    ]
+    second_rolling_mean = second_estimation_returns.mean()
+    second_weights = beginning_weights.loc[
+        second_forecast_date
+    ]
+    shocks = generate_standard_normal_shocks(
+        scenario_count=scenario_count,
+        asset_count=len(asset_returns.columns),
+        random_seed=random_seed,
+    )
+    expected_losses = (
+        generate_gaussian_portfolio_losses_from_shocks(
+            mean_vector=second_rolling_mean,
+            covariance_matrix=expected_second_covariance,
+            weights=second_weights,
+            standard_normal_shocks=shocks,
+        )
+    )
+    expected_estimate = calculate_empirical_var_es(
+        losses=expected_losses,
+        confidence_level=confidence_level,
+    )
+    second_result = result.loc[
+        (second_forecast_date, confidence_level)
+    ]
+
+    assert second_result[
+        "simulated_mean_return"
+    ] == pytest.approx(-expected_losses.mean())
+    assert second_result[
+        "simulated_volatility"
+    ] == pytest.approx(
+        expected_losses.std(ddof=1)
+    )
+    assert second_result[
+        "value_at_risk"
+    ] == pytest.approx(
+        expected_estimate.value_at_risk
+    )
+    assert second_result[
+        "expected_shortfall"
+    ] == pytest.approx(
+        expected_estimate.expected_shortfall
+    )
+
+
+def test_ewma_forecasts_generate_shocks_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EWMA forecasts reuse one shock matrix across all dates."""
+
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_rolling_monte_carlo_inputs()
+
+    original_generator = (
+        simulation_module.generate_standard_normal_shocks
+    )
+    call_count = 0
+
+    def counting_generator(
+        scenario_count: int,
+        asset_count: int,
+        random_seed: int,
+    ) -> np.ndarray:
+        """Count calls before delegating to the real generator."""
+
+        nonlocal call_count
+        call_count += 1
+
+        return original_generator(
+            scenario_count=scenario_count,
+            asset_count=asset_count,
+            random_seed=random_seed,
+        )
+
+    monkeypatch.setattr(
+        simulation_module,
+        "generate_standard_normal_shocks",
+        counting_generator,
+    )
+
+    calculate_ewma_gaussian_monte_carlo_forecasts(
+        asset_returns=asset_returns,
+        beginning_weights=beginning_weights,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=[0.95],
+        scenario_count=500,
+        random_seed=20261002,
+        decay_factor=0.94,
+    )
+
+    assert call_count == 1
+
+
+def test_ewma_forecasts_share_backtest_alignment() -> None:
+    """EWMA and rolling forecasts share dates and realized losses."""
+
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_rolling_monte_carlo_inputs()
+
+    confidence_levels = [0.80, 0.95]
+    common_arguments = {
+        "asset_returns": asset_returns,
+        "beginning_weights": beginning_weights,
+        "forecast_schedule": forecast_schedule,
+        "confidence_levels": confidence_levels,
+        "scenario_count": 500,
+        "random_seed": 20261002,
+    }
+
+    rolling_result = (
+        calculate_rolling_gaussian_monte_carlo_forecasts(
+            **common_arguments,
+        )
+    )
+    ewma_result = (
+        calculate_ewma_gaussian_monte_carlo_forecasts(
+            **common_arguments,
+            decay_factor=0.94,
+        )
+    )
+
+    validate_backtest_forecasts(
+        forecasts=ewma_result,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
+    )
+
+    expected_index = pd.MultiIndex.from_product(
+        [
+            forecast_schedule.index,
+            confidence_levels,
+        ],
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+    pd.testing.assert_index_equal(
+        ewma_result.index,
+        expected_index,
+    )
+
+    shared_backtest_columns = [
+        "estimation_start_date",
+        "estimation_end_date",
+        "realized_return",
+        "realized_loss",
+    ]
+    pd.testing.assert_frame_equal(
+        ewma_result[shared_backtest_columns],
+        rolling_result[shared_backtest_columns],
+    )
+
+
+def test_ewma_forecasts_are_reproducible() -> None:
+    """Identical EWMA inputs and seeds produce identical forecasts."""
+
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_rolling_monte_carlo_inputs()
+
+    arguments = {
+        "asset_returns": asset_returns,
+        "beginning_weights": beginning_weights,
+        "forecast_schedule": forecast_schedule,
+        "confidence_levels": [0.80, 0.95],
+        "scenario_count": 500,
+        "random_seed": 20261002,
+        "decay_factor": 0.94,
+    }
+
+    first_result = (
+        calculate_ewma_gaussian_monte_carlo_forecasts(
+            **arguments,
+        )
+    )
+    second_result = (
+        calculate_ewma_gaussian_monte_carlo_forecasts(
+            **arguments,
+        )
+    )
+
+    pd.testing.assert_frame_equal(
+        first_result,
+        second_result,
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid_decay_factor",
+    [
+        True,
+        0.0,
+        1.0,
+        -0.01,
+        1.01,
+        np.nan,
+        np.inf,
+        "0.94",
+    ],
+)
+def test_ewma_forecasts_reject_invalid_decay_factor(
+    invalid_decay_factor: object,
+) -> None:
+    """The public EWMA forecast rejects invalid decay factors."""
+
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_rolling_monte_carlo_inputs()
+
+    with pytest.raises(
+        ValueError,
+        match="Decay factor",
+    ):
+        calculate_ewma_gaussian_monte_carlo_forecasts(
+            asset_returns=asset_returns,
+            beginning_weights=beginning_weights,
+            forecast_schedule=forecast_schedule,
+            confidence_levels=[0.95],
+            scenario_count=500,
+            random_seed=20261002,
+            decay_factor=invalid_decay_factor,
         )
