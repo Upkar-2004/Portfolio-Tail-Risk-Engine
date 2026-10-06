@@ -4,11 +4,10 @@ Last updated: 2026-10-05
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
-**Current phase:** EWMA covariance initialization
+**Current phase:** EWMA covariance sequence
 
-**Next checkpoint:** Implement and test first-date EWMA initialization from the
-same scheduled 504-session sample covariance used by the rolling Gaussian
-model.
+**Next checkpoint:** Build and test the recursive EWMA covariance sequence with
+explicit no-look-ahead forecast timing.
 
 ## 1. Project definition and research scope
 
@@ -122,7 +121,7 @@ model.
   forecast-timing conventions.
 - [x] Add and validate the EWMA decay parameter in baseline configuration.
 - [x] Implement and validate one EWMA covariance update in Python.
-- [ ] Implement first-date EWMA covariance initialization.
+- [x] Implement first-date EWMA covariance initialization.
 - [ ] Build the recursive EWMA covariance sequence without look-ahead.
 - [ ] Test initialization, sequence timing, symmetry, and numerical stability.
 - [ ] Implement EWMA Gaussian VaR and ES forecasts.

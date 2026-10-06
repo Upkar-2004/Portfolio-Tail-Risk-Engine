@@ -7,6 +7,7 @@ import pytest
 from tailrisk.covariance import (
     calculate_ewma_covariance_update,
     calculate_sample_portfolio_moments,
+    calculate_initial_ewma_covariance,
 )
 
 
@@ -830,4 +831,259 @@ def test_ewma_covariance_update_aligns_covariance_rows() -> None:
     pd.testing.assert_frame_equal(
         reordered_result,
         ordered_result,
+    )
+
+
+
+def test_initial_ewma_covariance_matches_manual_example() -> None:
+    """Verify EWMA initialization against a manual sample covariance."""
+
+    asset_returns = pd.DataFrame(
+        {
+            "A": [0.02, 0.00, -0.01, 0.03],
+            "B": [0.01, -0.01, 0.00, 0.02],
+        },
+        index=pd.date_range(
+            "2025-01-02",
+            periods=4,
+            freq="B",
+        ),
+    )
+
+    result = calculate_initial_ewma_covariance(
+        asset_returns
+    )
+
+    expected = pd.DataFrame(
+        [
+            [0.0003333333333333333, 0.0002],
+            [0.0002, 0.00016666666666666666],
+        ],
+        index=["A", "B"],
+        columns=["A", "B"],
+    )
+
+    pd.testing.assert_frame_equal(
+        result,
+        expected,
+        check_exact=False,
+        rtol=1e-12,
+        atol=1e-15,
+    )
+
+
+
+
+def test_initial_ewma_covariance_requires_dataframe() -> None:
+    """Verify that initialization requires a return DataFrame."""
+
+    with pytest.raises(
+        TypeError,
+        match="Asset returns must be a pandas DataFrame",
+    ):
+        calculate_initial_ewma_covariance(
+            np.array(
+                [
+                    [0.01, 0.02],
+                    [-0.01, 0.00],
+                ]
+            )
+        )
+
+
+
+def test_initial_ewma_covariance_rejects_empty_returns() -> None:
+    """Verify that initialization rejects an empty return matrix."""
+
+    with pytest.raises(
+        ValueError,
+        match="Asset returns must not be empty",
+    ):
+        calculate_initial_ewma_covariance(
+            pd.DataFrame()
+        )
+
+
+
+def test_initial_ewma_covariance_requires_two_observations() -> None:
+    """Verify that sample covariance requires two observations."""
+
+    asset_returns = pd.DataFrame(
+        {
+            "A": [0.01],
+            "B": [-0.02],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="At least two return observations are required",
+    ):
+        calculate_initial_ewma_covariance(
+            asset_returns
+        )
+
+
+
+def test_initial_ewma_covariance_requires_unique_tickers() -> None:
+    """Verify that each asset-return ticker appears exactly once."""
+
+    asset_returns = pd.DataFrame(
+        [
+            [0.01, 0.02],
+            [-0.01, 0.00],
+        ],
+        columns=["A", "A"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Asset-return tickers must be unique",
+    ):
+        calculate_initial_ewma_covariance(
+            asset_returns
+        )
+
+
+
+def test_initial_ewma_covariance_rejects_nonnumeric_returns() -> None:
+    """Verify that initialization requires numeric returns."""
+
+    asset_returns = pd.DataFrame(
+        {
+            "A": [0.01, "invalid"],
+            "B": [0.02, -0.01],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Asset returns must contain numeric values",
+    ):
+        calculate_initial_ewma_covariance(
+            asset_returns
+        )
+
+
+
+@pytest.mark.parametrize(
+    "invalid_return",
+    [
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+)
+def test_initial_ewma_covariance_rejects_nonfinite_returns(
+    invalid_return: float,
+) -> None:
+    """Verify that initialization requires finite returns."""
+
+    asset_returns = pd.DataFrame(
+        {
+            "A": [0.01, invalid_return],
+            "B": [0.02, -0.01],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Asset returns must contain finite numbers",
+    ):
+        calculate_initial_ewma_covariance(
+            asset_returns
+        )
+
+
+
+def test_initial_ewma_covariance_has_valid_properties() -> None:
+    """Verify that initialization produces a finite symmetric PSD matrix."""
+
+    asset_returns = pd.DataFrame(
+        {
+            "A": [0.01, 0.02, 0.03],
+            "B": [0.02, 0.04, 0.06],
+        }
+    )
+
+    result = calculate_initial_ewma_covariance(
+        asset_returns
+    )
+
+    result_values = result.to_numpy(
+        dtype=float
+    )
+
+    assert np.isfinite(result_values).all()
+
+    assert np.allclose(
+        result_values,
+        result_values.T,
+        rtol=1e-12,
+        atol=1e-15,
+    )
+
+    eigenvalues = np.linalg.eigvalsh(
+        result_values
+    )
+
+    assert np.all(eigenvalues >= -1e-15)
+
+
+
+def test_initial_ewma_covariance_rejects_nonfinite_result() -> None:
+    """Verify that numerical overflow cannot produce an initial covariance."""
+
+    asset_returns = pd.DataFrame(
+        {
+            "A": [1e308, -1e308],
+            "B": [-1e308, 1e308],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Initial EWMA covariance must contain finite numbers",
+    ):
+        calculate_initial_ewma_covariance(
+            asset_returns
+        )
+
+
+
+
+def test_initial_ewma_covariance_matches_rolling_gaussian() -> None:
+    """Verify that EWMA and rolling Gaussian start with one covariance."""
+
+    asset_returns = pd.DataFrame(
+        {
+            "A": [0.02, 0.00, -0.01, 0.03],
+            "B": [0.01, -0.01, 0.00, 0.02],
+        },
+        index=pd.date_range(
+            "2025-01-02",
+            periods=4,
+            freq="B",
+        ),
+    )
+    weights = pd.Series(
+        [0.60, 0.40],
+        index=["A", "B"],
+    )
+
+    ewma_covariance = (
+        calculate_initial_ewma_covariance(
+            asset_returns
+        )
+    )
+    rolling_gaussian_covariance = (
+        calculate_sample_portfolio_moments(
+            asset_returns=asset_returns,
+            weights=weights,
+        ).covariance_matrix
+    )
+
+    pd.testing.assert_frame_equal(
+        ewma_covariance,
+        rolling_gaussian_covariance,
     )

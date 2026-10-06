@@ -19,6 +19,100 @@ class SamplePortfolioMoments:
     portfolio_volatility: float
 
 
+
+def calculate_initial_ewma_covariance(
+    asset_returns: pd.DataFrame,
+) -> pd.DataFrame:
+    """Initialize EWMA with an ordinary sample covariance matrix."""
+
+    if not isinstance(asset_returns, pd.DataFrame):
+        raise TypeError(
+            "Asset returns must be a pandas DataFrame."
+        )
+
+    if asset_returns.empty:
+        raise ValueError(
+            "Asset returns must not be empty."
+        )
+
+    if len(asset_returns) < 2:
+        raise ValueError(
+            "At least two return observations are required."
+        )
+
+    if asset_returns.columns.has_duplicates:
+        raise ValueError(
+            "Asset-return tickers must be unique."
+        )
+
+    try:
+        numeric_returns = asset_returns.astype(
+            float
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "Asset returns must contain numeric values."
+        ) from error
+
+    return_values = numeric_returns.to_numpy(
+        dtype=float
+    )
+
+    if not np.isfinite(return_values).all():
+        raise ValueError(
+            "Asset returns must contain finite numbers."
+        )
+
+    with np.errstate(
+        over="ignore",
+        invalid="ignore",
+    ):
+        covariance_matrix = numeric_returns.cov(
+            ddof=1
+        )
+
+    covariance_values = covariance_matrix.to_numpy(
+        dtype=float
+    )
+
+    if not np.isfinite(covariance_values).all():
+        raise ValueError(
+            "Initial EWMA covariance must contain "
+            "finite numbers."
+        )
+
+    if not np.allclose(
+        covariance_values,
+        covariance_values.T,
+        rtol=1e-12,
+        atol=1e-15,
+    ):
+        raise ValueError(
+            "Initial EWMA covariance must be symmetric."
+        )
+
+    covariance_scale = max(
+        1.0,
+        float(np.abs(covariance_values).max()),
+    )
+    numerical_tolerance = (
+        1e-12 * covariance_scale
+    )
+
+    eigenvalues = np.linalg.eigvalsh(
+        covariance_values
+    )
+
+    if float(eigenvalues.min()) < -numerical_tolerance:
+        raise ValueError(
+            "Initial EWMA covariance must be "
+            "positive semidefinite."
+        )
+
+    return covariance_matrix
+
+
+
 def calculate_ewma_covariance_update(
     previous_covariance: pd.DataFrame,
     innovation: pd.Series,
