@@ -1,13 +1,14 @@
 # Project Checkpoints
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
-**Current phase:** EWMA covariance sequence
+**Current phase:** EWMA Gaussian forecasts
 
-**Next checkpoint:** Build and test the recursive EWMA covariance sequence with
-explicit no-look-ahead forecast timing.
+**Next checkpoint:** Generate EWMA Gaussian Monte Carlo forecasts using the
+validated covariance sequence, rolling means, forecast-date portfolio weights,
+and shared standard-normal shocks.
 
 ## 1. Project definition and research scope
 
@@ -122,8 +123,8 @@ explicit no-look-ahead forecast timing.
 - [x] Add and validate the EWMA decay parameter in baseline configuration.
 - [x] Implement and validate one EWMA covariance update in Python.
 - [x] Implement first-date EWMA covariance initialization.
-- [ ] Build the recursive EWMA covariance sequence without look-ahead.
-- [ ] Test initialization, sequence timing, symmetry, and numerical stability.
+- [x] Build the recursive EWMA covariance sequence without look-ahead.
+- [x] Test initialization, sequence timing, symmetry, and numerical stability.
 - [ ] Implement EWMA Gaussian VaR and ES forecasts.
 
 ## 10. Filtered historical simulation
