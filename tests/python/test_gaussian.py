@@ -1,11 +1,13 @@
 """Tests for Gaussian portfolio-risk forecasts."""
 
+import numpy as np
 import pytest
 
 import pandas as pd
 
 from tailrisk.backtesting import create_forecast_schedule
 from tailrisk.models import (
+    calculate_ewma_gaussian_forecasts,
     calculate_gaussian_var_es,
     calculate_rolling_gaussian_forecasts,
     calculate_rolling_multivariate_gaussian_forecasts,
@@ -525,3 +527,128 @@ def test_rolling_multivariate_forecasts_require_estimation_dates(
             forecast_schedule=forecast_schedule,
             confidence_levels=[0.95],
         )
+
+
+def test_ewma_first_analytic_forecast_matches_rolling() -> None:
+    """Initial EWMA and rolling analytic forecasts are identical."""
+
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_multivariate_forecast_inputs()
+
+    common_arguments = {
+        "asset_returns": asset_returns,
+        "beginning_weights": beginning_weights,
+        "forecast_schedule": forecast_schedule,
+        "confidence_levels": [0.95, 0.99],
+    }
+
+    rolling_result = (
+        calculate_rolling_multivariate_gaussian_forecasts(
+            **common_arguments,
+        )
+    )
+    ewma_result = calculate_ewma_gaussian_forecasts(
+        **common_arguments,
+        decay_factor=0.94,
+    )
+
+    first_forecast_date = forecast_schedule.index[0]
+
+    pd.testing.assert_frame_equal(
+        ewma_result.loc[[first_forecast_date]],
+        rolling_result.loc[[first_forecast_date]],
+    )
+
+
+def test_ewma_second_analytic_forecast_uses_update() -> None:
+    """The second analytic forecast uses the first EWMA update."""
+
+    (
+        asset_returns,
+        beginning_weights,
+        forecast_schedule,
+    ) = _create_multivariate_forecast_inputs()
+
+    decay_factor = 0.94
+    confidence_level = 0.95
+
+    result = calculate_ewma_gaussian_forecasts(
+        asset_returns=asset_returns,
+        beginning_weights=beginning_weights,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=[confidence_level],
+        decay_factor=decay_factor,
+    )
+
+    first_forecast_date = forecast_schedule.index[0]
+    first_schedule_row = forecast_schedule.iloc[0]
+    first_estimation_returns = asset_returns.loc[
+        first_schedule_row["estimation_start_date"]:
+        first_schedule_row["estimation_end_date"]
+    ]
+    initial_covariance = first_estimation_returns.cov(
+        ddof=1
+    )
+    first_rolling_mean = first_estimation_returns.mean()
+    first_innovation = (
+        asset_returns.loc[first_forecast_date]
+        - first_rolling_mean
+    )
+    innovation_outer_product = pd.DataFrame(
+        np.outer(first_innovation, first_innovation),
+        index=asset_returns.columns,
+        columns=asset_returns.columns,
+    )
+    expected_second_covariance = (
+        decay_factor * initial_covariance
+        + (1.0 - decay_factor)
+        * innovation_outer_product
+    )
+
+    second_forecast_date = forecast_schedule.index[1]
+    second_schedule_row = forecast_schedule.iloc[1]
+    second_estimation_returns = asset_returns.loc[
+        second_schedule_row["estimation_start_date"]:
+        second_schedule_row["estimation_end_date"]
+    ]
+    second_mean_vector = second_estimation_returns.mean()
+    second_weights = beginning_weights.loc[
+        second_forecast_date
+    ]
+    expected_portfolio_mean = float(
+        second_weights @ second_mean_vector
+    )
+    expected_portfolio_variance = float(
+        second_weights
+        @ expected_second_covariance
+        @ second_weights
+    )
+    expected_portfolio_volatility = float(
+        np.sqrt(expected_portfolio_variance)
+    )
+    expected_risk = calculate_gaussian_var_es(
+        mean_return=expected_portfolio_mean,
+        volatility=expected_portfolio_volatility,
+        confidence_level=confidence_level,
+    )
+    second_result = result.loc[
+        (second_forecast_date, confidence_level)
+    ]
+
+    assert second_result["mean_return"] == pytest.approx(
+        expected_portfolio_mean
+    )
+    assert second_result["volatility"] == pytest.approx(
+        expected_portfolio_volatility
+    )
+    assert second_result["value_at_risk"] == pytest.approx(
+        expected_risk.value_at_risk
+    )
+    assert second_result[
+        "expected_shortfall"
+    ] == pytest.approx(
+        expected_risk.expected_shortfall
+    )

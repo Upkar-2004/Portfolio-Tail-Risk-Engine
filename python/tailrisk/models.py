@@ -5,13 +5,13 @@ from math import isfinite
 from numbers import Real
 from statistics import NormalDist
 
+import numpy as np
+import pandas as pd
 
 from tailrisk.covariance import (
+    calculate_ewma_covariance_sequence,
     calculate_sample_portfolio_moments,
 )
-
-
-import pandas as pd
 
 
 _STANDARD_NORMAL = NormalDist()
@@ -358,6 +358,195 @@ def calculate_rolling_multivariate_gaussian_forecasts(
                     "value_at_risk": (
                         forecast.value_at_risk
                     ),
+                    "expected_shortfall": (
+                        forecast.expected_shortfall
+                    ),
+                }
+            )
+
+    forecast_index = pd.MultiIndex.from_tuples(
+        forecast_keys,
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+
+    return pd.DataFrame(
+        records,
+        index=forecast_index,
+    )
+
+
+def calculate_ewma_gaussian_forecasts(
+    asset_returns: pd.DataFrame,
+    beginning_weights: pd.DataFrame,
+    forecast_schedule: pd.DataFrame,
+    confidence_levels: list[float],
+    decay_factor: float,
+) -> pd.DataFrame:
+    """Calculate closed-form Gaussian forecasts with EWMA covariance."""
+
+    if not isinstance(beginning_weights, pd.DataFrame):
+        raise TypeError(
+            "Beginning weights must be a pandas DataFrame."
+        )
+
+    if beginning_weights.empty:
+        raise ValueError(
+            "Beginning weights must not be empty."
+        )
+
+    if not confidence_levels:
+        raise ValueError(
+            "At least one confidence level is required."
+        )
+
+    if not isinstance(
+        beginning_weights.index,
+        pd.DatetimeIndex,
+    ):
+        raise ValueError(
+            "Beginning weights must use a DatetimeIndex."
+        )
+
+    if beginning_weights.index.hasnans:
+        raise ValueError(
+            "Beginning-weight dates must not be missing."
+        )
+
+    if beginning_weights.index.has_duplicates:
+        raise ValueError(
+            "Beginning-weight dates must be unique."
+        )
+
+    if not beginning_weights.index.is_monotonic_increasing:
+        raise ValueError(
+            "Beginning weights must be ordered "
+            "by increasing date."
+        )
+
+    if beginning_weights.columns.has_duplicates:
+        raise ValueError(
+            "Beginning-weight tickers must be unique."
+        )
+
+    if set(asset_returns.columns) != set(
+        beginning_weights.columns
+    ):
+        raise ValueError(
+            "Asset returns and beginning weights "
+            "must use the same tickers."
+        )
+
+    covariance_sequence = calculate_ewma_covariance_sequence(
+        asset_returns=asset_returns,
+        forecast_schedule=forecast_schedule,
+        decay_factor=decay_factor,
+    )
+
+    records: list[dict[str, float]] = []
+    forecast_keys: list[
+        tuple[pd.Timestamp, float]
+    ] = []
+
+    for forecast_date, schedule_row in (
+        forecast_schedule.iterrows()
+    ):
+        forecast_date = pd.Timestamp(
+            forecast_date
+        )
+
+        if forecast_date not in beginning_weights.index:
+            raise ValueError(
+                "Beginning weights are required "
+                "for every forecast date."
+            )
+
+        estimation_returns = asset_returns.loc[
+            schedule_row["estimation_start_date"]:
+            schedule_row["estimation_end_date"]
+        ]
+        mean_vector = estimation_returns.mean()
+        covariance_matrix = covariance_sequence[
+            forecast_date
+        ].reindex(
+            index=asset_returns.columns,
+            columns=asset_returns.columns,
+        )
+
+        try:
+            forecast_weights = (
+                beginning_weights
+                .loc[forecast_date]
+                .reindex(asset_returns.columns)
+                .astype(float)
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "Beginning weights must contain numeric values."
+            ) from error
+
+        weight_values = forecast_weights.to_numpy(
+            dtype=float
+        )
+
+        if not np.isfinite(weight_values).all():
+            raise ValueError(
+                "Beginning weights must contain finite numbers."
+            )
+
+        portfolio_mean = float(
+            forecast_weights @ mean_vector
+        )
+        portfolio_variance = float(
+            forecast_weights
+            @ covariance_matrix
+            @ forecast_weights
+        )
+        covariance_scale = max(
+            1.0,
+            float(
+                np.abs(
+                    covariance_matrix.to_numpy(
+                        dtype=float
+                    )
+                ).max()
+            ),
+        )
+        numerical_tolerance = (
+            1e-12 * covariance_scale
+        )
+
+        if portfolio_variance < -numerical_tolerance:
+            raise ValueError(
+                "Portfolio variance cannot be negative."
+            )
+
+        portfolio_volatility = float(
+            np.sqrt(
+                max(portfolio_variance, 0.0)
+            )
+        )
+
+        for confidence_level in confidence_levels:
+            forecast = calculate_gaussian_var_es(
+                mean_return=portfolio_mean,
+                volatility=portfolio_volatility,
+                confidence_level=confidence_level,
+            )
+
+            forecast_keys.append(
+                (
+                    forecast_date,
+                    forecast.confidence_level,
+                )
+            )
+            records.append(
+                {
+                    "mean_return": portfolio_mean,
+                    "volatility": portfolio_volatility,
+                    "value_at_risk": forecast.value_at_risk,
                     "expected_shortfall": (
                         forecast.expected_shortfall
                     ),

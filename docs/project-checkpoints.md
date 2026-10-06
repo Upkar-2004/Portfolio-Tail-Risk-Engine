@@ -134,6 +134,8 @@ for the filtered historical simulation model.
   forecast dates.
 - [x] Save and reload-verify EWMA forecasts, realized losses, exceedances,
   lineage, and metadata.
+- [x] Validate EWMA Monte Carlo VaR and Expected Shortfall against closed-form
+  Gaussian forecasts across the complete baseline timeline.
 
 ## 10. Filtered historical simulation
 

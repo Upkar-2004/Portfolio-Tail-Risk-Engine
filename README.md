@@ -40,3 +40,13 @@ temporary output directory:
 Every saved snapshot contains `forecasts.csv` and `metadata.json`. The command
 reloads the snapshot and verifies its checksum and forecast structure before
 reporting success.
+
+Validate the saved EWMA Monte Carlo forecasts against closed-form Gaussian
+VaR and Expected Shortfall across the complete forecast timeline:
+
+```bash
+.venv/bin/python scripts/report_ewma_validation.py \
+  data/processed/20260825T162125895465Z_baseline_11_asset \
+  data/portfolio/20260825T162125895465Z_baseline_11_asset \
+  data/backtests/20261006T151840866317Z_baseline_11_asset_ewma_gaussian_monte_carlo
+```
