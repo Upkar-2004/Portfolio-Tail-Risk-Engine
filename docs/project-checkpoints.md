@@ -4,11 +4,11 @@ Last updated: 2026-10-06
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
-**Current phase:** EWMA Gaussian baseline execution
+**Current phase:** Filtered historical simulation design
 
-**Next checkpoint:** Run the configured 100,000-scenario EWMA Gaussian baseline
-across all eligible forecast dates, save its forecasts and metadata, and
-reload-verify the resulting snapshot.
+**Next checkpoint:** Review and finalize the volatility-filtering,
+standardized-residual, residual-resampling, and forecast-rescaling conventions
+for the filtered historical simulation model.
 
 ## 1. Project definition and research scope
 
@@ -130,9 +130,9 @@ reload-verify the resulting snapshot.
   backtest alignment, reproducibility, and decay-factor validation.
 - [x] Add and test a reproducible command for the configured EWMA Gaussian
   backtest.
-- [ ] Generate the 100,000-scenario EWMA Gaussian baseline across all eligible
+- [x] Generate the 100,000-scenario EWMA Gaussian baseline across all eligible
   forecast dates.
-- [ ] Save and reload-verify EWMA forecasts, realized losses, exceedances,
+- [x] Save and reload-verify EWMA forecasts, realized losses, exceedances,
   lineage, and metadata.
 
 ## 10. Filtered historical simulation
