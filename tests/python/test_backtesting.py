@@ -811,6 +811,72 @@ def test_save_backtest_metadata_records_settings_and_lineage(
     }
 
 
+def test_save_backtest_metadata_records_fhs_conventions(
+    tmp_path: Path,
+) -> None:
+    """FHS metadata records filtering and resampling conventions."""
+
+    (
+        forecasts,
+        forecast_schedule,
+        confidence_levels,
+    ) = _create_valid_backtest_forecasts()
+    (
+        config,
+        returns_metadata,
+        portfolio_metadata,
+    ) = _create_backtest_metadata_inputs()
+    config["models"] = {
+        "ewma_gaussian": {
+            "decay_factor": 0.94,
+        }
+    }
+    forecasts_path = save_backtest_forecasts(
+        forecasts=forecasts,
+        forecast_schedule=forecast_schedule,
+        confidence_levels=confidence_levels,
+        output_root=tmp_path,
+        snapshot_id="test_filtered_historical",
+    )
+
+    metadata_path = save_backtest_metadata(
+        forecasts_path=forecasts_path,
+        forecasts=forecasts,
+        forecast_schedule=forecast_schedule,
+        config=config,
+        model_name="filtered_historical_simulation",
+        source_returns_snapshot_id="returns-snapshot",
+        source_returns_metadata=returns_metadata,
+        source_portfolio_snapshot_id="portfolio-snapshot",
+        source_portfolio_metadata=portfolio_metadata,
+        generated_at=datetime.now(timezone.utc),
+    )
+
+    with metadata_path.open(
+        encoding="utf-8",
+    ) as stream:
+        metadata = json.load(stream)
+
+    assert metadata["model"]["decay_factor"] == pytest.approx(
+        0.94
+    )
+    assert metadata["model"]["residual_pool_size"] == 3
+    assert metadata["model"]["initial_residual_pool"] == (
+        "in_sample_calibration"
+    )
+    assert metadata["model"]["residual_pool_update"] == (
+        "drop_oldest_append_latest_after_forecast"
+    )
+    assert metadata["model"]["resampling"] == (
+        "joint_rows_with_replacement"
+    )
+    assert metadata["simulation"] == {
+        "scenario_count": 1_000,
+        "random_seed": 20261002,
+        "reuse_residual_pool_positions": True,
+    }
+
+
 def test_save_backtest_metadata_requires_timezone(
     tmp_path: Path,
 ) -> None:

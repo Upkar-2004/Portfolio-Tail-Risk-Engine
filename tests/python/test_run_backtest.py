@@ -1,4 +1,4 @@
-"""Tests for Gaussian backtest command model selection."""
+"""Tests for backtest command model selection."""
 
 import importlib.util
 from pathlib import Path
@@ -117,12 +117,45 @@ def test_model_forecasts_route_ewma_decay_factor(
     assert received_arguments["random_seed"] == 20261002
 
 
+def test_model_forecasts_route_filtered_historical_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The FHS command passes simulation and decay settings."""
+
+    expected = pd.DataFrame({"result": [3.0]})
+    received_arguments: dict[str, object] = {}
+
+    def fake_fhs_forecasts(
+        **arguments: object,
+    ) -> pd.DataFrame:
+        """Record FHS arguments and return a sentinel result."""
+
+        received_arguments.update(arguments)
+        return expected
+
+    monkeypatch.setattr(
+        run_backtest_module,
+        "calculate_rolling_filtered_historical_forecasts",
+        fake_fhs_forecasts,
+    )
+
+    result = run_backtest_module.calculate_model_forecasts(
+        model="filtered-historical",
+        **_placeholder_inputs(),
+    )
+
+    assert result is expected
+    assert received_arguments["decay_factor"] == 0.94
+    assert received_arguments["scenario_count"] == 500
+    assert received_arguments["random_seed"] == 20261002
+
+
 def test_model_forecasts_reject_unknown_model() -> None:
     """Model dispatch rejects names outside the supported choices."""
 
     with pytest.raises(
         ValueError,
-        match="Unsupported Gaussian model",
+        match="Unsupported backtest model",
     ):
         run_backtest_module.calculate_model_forecasts(
             model="unknown-model",

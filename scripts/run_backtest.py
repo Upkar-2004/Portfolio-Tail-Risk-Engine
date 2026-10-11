@@ -1,4 +1,4 @@
-"""Run and persist a Gaussian Monte Carlo backtest."""
+"""Run and persist a configured portfolio-risk backtest."""
 
 import argparse
 from copy import deepcopy
@@ -18,6 +18,9 @@ from tailrisk.config import (
     load_config,
     validate_simulation_config,
 )
+from tailrisk.filtered_historical import (
+    calculate_rolling_filtered_historical_forecasts,
+)
 from tailrisk.portfolio import load_portfolio_path
 from tailrisk.returns import load_processed_returns
 from tailrisk.simulation import (
@@ -31,9 +34,11 @@ _CONFIG_PATH = _PROJECT_ROOT / "configs" / "baseline.yaml"
 _BACKTEST_DATA_ROOT = _PROJECT_ROOT / "data" / "backtests"
 _ROLLING_MODEL = "rolling-gaussian"
 _EWMA_MODEL = "ewma-gaussian"
+_FHS_MODEL = "filtered-historical"
 _MODEL_NAMES = {
     _ROLLING_MODEL: "rolling_gaussian_monte_carlo",
     _EWMA_MODEL: "ewma_gaussian_monte_carlo",
+    _FHS_MODEL: "filtered_historical_simulation",
 }
 
 
@@ -42,7 +47,7 @@ def parse_args() -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Run and save a Gaussian Monte Carlo backtest."
+            "Run and save a configured portfolio-risk backtest."
         )
     )
     parser.add_argument(
@@ -60,7 +65,7 @@ def parse_args() -> argparse.Namespace:
         choices=tuple(_MODEL_NAMES),
         default=_ROLLING_MODEL,
         help=(
-            "Gaussian model to run. Defaults to rolling-gaussian."
+            "Risk model to run. Defaults to rolling-gaussian."
         ),
     )
     parser.add_argument(
@@ -101,7 +106,7 @@ def calculate_model_forecasts(
     random_seed: int,
     decay_factor: float,
 ) -> pd.DataFrame:
-    """Route validated inputs to the selected Gaussian model."""
+    """Route validated inputs to the selected risk model."""
 
     common_arguments = {
         "asset_returns": asset_returns,
@@ -123,8 +128,14 @@ def calculate_model_forecasts(
             decay_factor=decay_factor,
         )
 
+    if model == _FHS_MODEL:
+        return calculate_rolling_filtered_historical_forecasts(
+            **common_arguments,
+            decay_factor=decay_factor,
+        )
+
     raise ValueError(
-        f"Unsupported Gaussian model: {model}."
+        f"Unsupported backtest model: {model}."
     )
 
 
@@ -146,8 +157,8 @@ def main() -> None:
         "reuse_standard_normal_shocks"
     ]:
         raise ValueError(
-            "The Gaussian backtest requires shared "
-            "standard-normal shocks."
+            "The backtest requires shared random draws "
+            "across forecast dates."
         )
 
     generated_at = datetime.now(timezone.utc)
@@ -272,7 +283,7 @@ def main() -> None:
         forecast_schedule=forecast_schedule,
     )
 
-    print(f"{args.model} Monte Carlo backtest")
+    print(f"{args.model} backtest")
     print(
         "Forecast dates:",
         f"{forecast_schedule.index[0].date()} to "
@@ -294,7 +305,10 @@ def main() -> None:
         "Random seed:",
         simulation_config["random_seed"],
     )
-    if args.model == _EWMA_MODEL:
+    if args.model in {
+        _EWMA_MODEL,
+        _FHS_MODEL,
+    }:
         print(
             "EWMA decay factor:",
             config["models"]["ewma_gaussian"][

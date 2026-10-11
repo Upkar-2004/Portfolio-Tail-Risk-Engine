@@ -861,14 +861,17 @@ def calculate_filtered_portfolio_losses(
             "Portfolio weights must contain finite numbers."
         )
 
-    return_scenarios = (
-        mean_values
-        + residual_values
-        @ forecast_cholesky_factor.T
+    portfolio_mean = float(
+        mean_values @ weight_values
     )
-
+    portfolio_residual_loading = (
+        forecast_cholesky_factor.T
+        @ weight_values
+    )
     portfolio_returns = (
-        return_scenarios @ weight_values
+        portfolio_mean
+        + residual_values
+        @ portfolio_residual_loading
     )
     portfolio_losses = -portfolio_returns
 

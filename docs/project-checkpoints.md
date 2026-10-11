@@ -4,10 +4,10 @@ Last updated: 2026-10-11
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
-**Current phase:** Filtered historical simulation integration
+**Current phase:** Statistical evaluation design
 
-**Next checkpoint:** Add and test a reproducible command for the configured
-filtered historical simulation backtest.
+**Next checkpoint:** Review VaR exceedance coverage mathematics and finalize
+the statistical-test decision rules.
 
 ## 1. Project definition and research scope
 
@@ -145,19 +145,19 @@ filtered historical simulation backtest.
 - [x] Implement the Python reference model.
 - [x] Test filtering, residual standardization, resampling, and forecast scaling.
 - [x] Implement filtered-historical-simulation VaR and ES forecasts.
-- [ ] Add and test a reproducible command for the configured FHS backtest.
-- [ ] Generate the 100,000-scenario FHS baseline across all eligible forecast
+- [x] Add and test a reproducible command for the configured FHS backtest.
+- [x] Generate the 100,000-scenario FHS baseline across all eligible forecast
   dates.
-- [ ] Save and reload-verify FHS forecasts, realized losses, exceedances,
+- [x] Save and reload-verify FHS forecasts, realized losses, exceedances,
   lineage, and metadata.
 
 ## 11. Rolling forecast and backtest engine
 
 - [x] Implement a shared one-step-ahead forecast schedule with no look-ahead.
 - [x] Test forecast-window boundaries, date ordering, and realized-loss alignment.
-- [ ] Use identical forecast dates and realized losses for all models.
+- [x] Use identical forecast dates and realized losses for all models.
 - [x] Store forecasts, realized losses, exceedances, and model metadata.
-- [ ] Run the complete baseline backtest for all three models.
+- [x] Run the complete baseline backtest for all three models.
 
 ## 12. Statistical evaluation
 

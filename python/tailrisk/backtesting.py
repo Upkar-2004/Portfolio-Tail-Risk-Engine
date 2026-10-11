@@ -598,6 +598,40 @@ def save_backtest_metadata(
         },
     }
 
+    if model_name in {
+        "ewma_gaussian_monte_carlo",
+        "filtered_historical_simulation",
+    }:
+        metadata["model"]["decay_factor"] = float(
+            config["models"]["ewma_gaussian"][
+                "decay_factor"
+            ]
+        )
+
+    if model_name == "filtered_historical_simulation":
+        metadata["model"].update(
+            {
+                "residual_pool_size": config[
+                    "forecasting"
+                ]["estimation_window"],
+                "initial_residual_pool": (
+                    "in_sample_calibration"
+                ),
+                "residual_pool_update": (
+                    "drop_oldest_append_latest_after_forecast"
+                ),
+                "resampling": (
+                    "joint_rows_with_replacement"
+                ),
+            }
+        )
+        reuse_positions = metadata["simulation"].pop(
+            "reuse_standard_normal_shocks"
+        )
+        metadata["simulation"][
+            "reuse_residual_pool_positions"
+        ] = reuse_positions
+
     metadata_path = output_path.parent / "metadata.json"
 
     with metadata_path.open(

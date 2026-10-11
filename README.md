@@ -4,7 +4,7 @@
 
 See the [project checkpoint list](docs/project-checkpoints.md) for completed work, the current phase, and upcoming milestones.
 
-## Gaussian backtests
+## Risk-model backtests
 
 Run the configured 100,000-scenario rolling Gaussian baseline from the
 project root. Rolling Gaussian remains the default model:
@@ -25,6 +25,16 @@ same simulation settings:
   --model ewma-gaussian
 ```
 
+Run the filtered historical simulation baseline with the same EWMA covariance
+filter, forecast timeline, and simulation settings:
+
+```bash
+.venv/bin/python scripts/run_backtest.py \
+  data/processed/20260825T162125895465Z_baseline_11_asset \
+  data/portfolio/20260825T162125895465Z_baseline_11_asset \
+  --model filtered-historical
+```
+
 For a faster workflow check, override only the scenario count and write to a
 temporary output directory:
 
@@ -32,7 +42,7 @@ temporary output directory:
 .venv/bin/python scripts/run_backtest.py \
   data/processed/20260825T162125895465Z_baseline_11_asset \
   data/portfolio/20260825T162125895465Z_baseline_11_asset \
-  --model ewma-gaussian \
+  --model filtered-historical \
   --scenario-count 1000 \
   --output-root /tmp/portfolio-tail-risk-smoke
 ```
