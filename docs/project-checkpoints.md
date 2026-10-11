@@ -1,6 +1,6 @@
 # Project Checkpoints
 
-Last updated: 2026-10-06
+Last updated: 2026-10-10
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
@@ -141,6 +141,8 @@ for the filtered historical simulation model.
 
 - [ ] Review volatility filtering, standardized residuals, resampling, and volatility rescaling.
 - [ ] Finalize the filtering and residual-sampling conventions.
+- [x] Implement and test single-scenario covariance whitening, forecast
+  rescaling, return reconstruction, and portfolio-loss calculation.
 - [ ] Implement the Python reference model.
 - [ ] Test filtering, residual standardization, resampling, and forecast scaling.
 - [ ] Implement filtered-historical-simulation VaR and ES forecasts.
