@@ -1,14 +1,13 @@
 # Project Checkpoints
 
-Last updated: 2026-10-10
+Last updated: 2026-10-11
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
-**Current phase:** Filtered historical simulation design
+**Current phase:** Filtered historical simulation integration
 
-**Next checkpoint:** Review and finalize the volatility-filtering,
-standardized-residual, residual-resampling, and forecast-rescaling conventions
-for the filtered historical simulation model.
+**Next checkpoint:** Add and test a reproducible command for the configured
+filtered historical simulation backtest.
 
 ## 1. Project definition and research scope
 
@@ -139,13 +138,18 @@ for the filtered historical simulation model.
 
 ## 10. Filtered historical simulation
 
-- [ ] Review volatility filtering, standardized residuals, resampling, and volatility rescaling.
-- [ ] Finalize the filtering and residual-sampling conventions.
+- [x] Review volatility filtering, standardized residuals, resampling, and volatility rescaling.
+- [x] Finalize the filtering and residual-sampling conventions.
 - [x] Implement and test single-scenario covariance whitening, forecast
   rescaling, return reconstruction, and portfolio-loss calculation.
-- [ ] Implement the Python reference model.
-- [ ] Test filtering, residual standardization, resampling, and forecast scaling.
-- [ ] Implement filtered-historical-simulation VaR and ES forecasts.
+- [x] Implement the Python reference model.
+- [x] Test filtering, residual standardization, resampling, and forecast scaling.
+- [x] Implement filtered-historical-simulation VaR and ES forecasts.
+- [ ] Add and test a reproducible command for the configured FHS backtest.
+- [ ] Generate the 100,000-scenario FHS baseline across all eligible forecast
+  dates.
+- [ ] Save and reload-verify FHS forecasts, realized losses, exceedances,
+  lineage, and metadata.
 
 ## 11. Rolling forecast and backtest engine
 

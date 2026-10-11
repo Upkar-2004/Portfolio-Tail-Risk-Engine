@@ -308,6 +308,122 @@ positive semidefiniteness mathematically because it is a convex combination of
 a positive-semidefinite covariance matrix and the positive-semidefinite outer
 product $\mathbf{u}_t\mathbf{u}_t^\top$.
 
+### 6.3 Filtered historical simulation convention
+
+The filtered historical simulation model preserves the EWMA model's
+504-session rolling asset mean, EWMA covariance sequence with
+$\lambda=0.94$, one-session horizon, beginning-of-session portfolio weights,
+forecast dates, confidence levels, and realized losses. It changes the shock
+distribution: complete historical asset-level residual vectors are resampled
+instead of drawing independent standard-normal shocks.
+
+Let $t_0$ denote the first eligible forecast session. The initial residual
+pool uses the same 504-session estimation window as the Gaussian models. Its
+sample mean and covariance are
+
+```math
+\widehat{\boldsymbol{\mu}}_{t_0}
+=
+\frac{1}{504}
+\sum_{s=t_0-504}^{t_0-1}\mathbf{R}_s,
+
+\qquad
+
+\widehat{\boldsymbol{\Sigma}}_{t_0}
+=
+\mathbf{L}_{t_0}\mathbf{L}_{t_0}^{\top}.
+```
+
+Each return in that initial window is converted into a calibration residual:
+
+```math
+\mathbf{z}_s
+=
+\mathbf{L}_{t_0}^{-1}
+\left(
+\mathbf{R}_s-\widehat{\boldsymbol{\mu}}_{t_0}
+\right),
+\qquad
+s=t_0-504,\ldots,t_0-1.
+```
+
+The implementation solves the corresponding triangular linear system and
+does not form a matrix inverse. These initial observations are described as
+calibration residuals rather than one-step-ahead forecast errors: their common
+mean and covariance use the complete initial estimation window. This creates
+no out-of-sample look-ahead because every input predates $t_0$, but it is an
+explicit in-sample initialization convention.
+
+The convention preserves the shared first forecast date without requiring a
+separate pre-2010 burn-in sample. It also provides the reconstruction identity
+
+```math
+\widehat{\boldsymbol{\mu}}_{t_0}
++
+\mathbf{L}_{t_0}\mathbf{z}_s
+=
+\mathbf{R}_s.
+```
+
+Consequently, the first FHS return distribution is ordinary historical
+simulation over the initial 504 returns, subject only to finite resampling
+variation.
+
+After initialization, the residual pool has a fixed length of 504 sessions.
+For forecast session $t$, it contains only residuals dated before $t$. After
+the session is observed, calculate the genuine one-step-ahead innovation and
+standardized residual using the mean and covariance that existed before the
+return:
+
+```math
+\mathbf{u}_t
+=
+\mathbf{R}_t-\widehat{\boldsymbol{\mu}}_t,
+
+\qquad
+
+\mathbf{z}_t
+=
+\mathbf{L}_t^{-1}\mathbf{u}_t.
+```
+
+The oldest residual is removed and $\mathbf{z}_t$ is appended only after the
+forecast for $t$ has been issued and evaluated. The updated pool is first used
+for session $t+1$. After 504 updates, every initial calibration residual has
+left the pool and all rows are sequential forecast errors.
+
+For each forecast date, the baseline draws 100,000 complete residual rows with
+replacement. All 11 asset components of a selected row remain together, which
+preserves their observed joint dependence. Asset columns are never resampled
+independently. The master seed is 20261002. Reinitializing the generator with
+that seed on each forecast date reuses the same sequence of pool positions,
+providing common random numbers while the contents of those positions evolve.
+
+For a sampled residual $\mathbf{z}^{*}$, current conditions are restored with
+the forecast-date Cholesky factor:
+
+```math
+\mathbf{R}^{*}_t
+=
+\widehat{\boldsymbol{\mu}}_t
++
+\mathbf{L}_t\mathbf{z}^{*}.
+```
+
+The corresponding simulated portfolio loss is
+
+```math
+L^{*}_{p,t}
+=
+-\mathbf{w}_t^{\top}\mathbf{R}^{*}_t.
+```
+
+FHS VaR is the empirical loss quantile at the requested confidence level.
+Expected Shortfall is the arithmetic mean of simulated losses greater than or
+equal to that VaR threshold. Covariance matrices used for whitening and
+rescaling must be finite, symmetric, and numerically positive definite so a
+stable Cholesky factor exists.
+
 ## 7. Planned model comparison
 
 The models will be developed and evaluated in the following order:
