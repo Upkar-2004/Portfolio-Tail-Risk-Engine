@@ -1,13 +1,13 @@
 # Project Checkpoints
 
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
 **Current phase:** Statistical evaluation design
 
-**Next checkpoint:** Review VaR exceedance coverage mathematics and finalize
-the statistical-test decision rules.
+**Next checkpoint:** Review and implement the Christoffersen independence and
+conditional-coverage tests.
 
 ## 1. Project definition and research scope
 
@@ -91,8 +91,9 @@ the statistical-test decision rules.
 - [x] Fix covariance-estimation conventions.
 - [x] Fix simulation counts and random seeds.
 - [x] Require verified, finite, complete portfolio returns on eligible forecast dates.
-- [ ] Fix statistical-test decision rules.
-- [ ] Record all finalized decisions before examining comparative model results.
+- [x] Fix the core VaR statistical-test decision rules.
+- [x] Record the core VaR testing decisions before formal comparative
+  interpretation.
 
 ## 8. Rolling Gaussian reference model
 
@@ -161,9 +162,9 @@ the statistical-test decision rules.
 
 ## 12. Statistical evaluation
 
-- [ ] Review VaR exceedances and nominal coverage mathematically.
-- [ ] Implement exceedance-rate summaries.
-- [ ] Implement the Kupiec unconditional-coverage test.
+- [x] Review VaR exceedances and nominal coverage mathematically.
+- [x] Implement exceedance-rate summaries.
+- [x] Implement the Kupiec unconditional-coverage test.
 - [ ] Implement the Christoffersen independence test.
 - [ ] Implement Expected Shortfall diagnostics and tail-loss-severity summaries.
 - [ ] Test statistical functions against controlled examples or independent calculations.

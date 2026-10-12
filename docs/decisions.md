@@ -95,3 +95,51 @@ without adding a pre-2010 burn-in dataset or delaying the comparison period.
   EWMA volatility dynamics already used by the Gaussian comparison model.
 - A separate pre-sample burn-in period remains available as a later robustness
   check rather than part of the baseline specification.
+
+## 2026-10-12: Fixed the core VaR statistical-testing protocol
+
+**Status:** Accepted
+
+### Context
+
+The three baseline models now cover identical forecast dates and realized
+losses. Statistical decision rules must be fixed before comparative results
+are interpreted so thresholds are not selected in response to observed
+p-values.
+
+### Decision
+
+- Define an exceedance by the strict rule
+  $I_t=\mathbf{1}\{L_t>\operatorname{VaR}_{t,\alpha}\}$. Equality is not an
+  exceedance.
+- Use nominal exceedance probability $p=1-\alpha$ and state the Kupiec null as
+  $H_0:\Pr(I_t=1)=p$, which concerns the unknown breach probability rather
+  than the observed rate.
+- Use two-sided tests with a 5% significance level and reject only when the
+  raw p-value is strictly below 0.05.
+- Report observed and expected rates and counts alongside every test so the
+  direction and magnitude of miscalibration remain visible.
+- Use the asymptotic chi-square reference distributions for Kupiec and
+  Christoffersen likelihood-ratio statistics, with boundary likelihood terms
+  evaluated using the convention $0\log(0)=0$.
+- Treat Christoffersen conditional coverage as the primary overall VaR
+  adequacy test. Report Kupiec unconditional coverage and Christoffersen
+  independence as component diagnostics.
+- Retain all raw p-values and additionally apply Holm adjustment across the
+  nine primary model-confidence hypotheses when making simultaneous adequacy
+  claims.
+- Use the language "reject" or "do not reject" rather than treating a
+  non-rejection as proof that a model is correct.
+- Keep later VaR-score and joint VaR-Expected-Shortfall model comparisons in
+  separate, predeclared multiple-testing families.
+
+### Consequences
+
+- Too few exceedances are interpreted as evidence of conservatism, not
+  automatically as superior risk performance.
+- Kupiec results cannot establish that exceedances are independent; the
+  Christoffersen layer remains necessary.
+- A raw p-value below 0.05 may not support a simultaneous final claim after
+  multiplicity adjustment, so both values will be reported.
+- Descriptive subperiod, severity, and traffic-light results will not be
+  presented as formal hypothesis tests without separately documented rules.

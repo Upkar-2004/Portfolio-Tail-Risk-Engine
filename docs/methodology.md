@@ -453,18 +453,86 @@ A VaR exceedance is recorded when the realized loss is strictly greater than
 the corresponding VaR forecast. Equality with the VaR threshold is not
 classified as an exceedance.
 
+For confidence level $\alpha$, define the exceedance indicator and nominal
+exceedance probability as
+
+```math
+I_t=\mathbf{1}\{L_t>\operatorname{VaR}_{t,\alpha}\},
+\qquad p=1-\alpha.
+```
+
+Each model and confidence level will first be described by its number of
+forecasts, observed exceedance count, expected exceedance count, observed
+exceedance rate, and nominal exceedance rate.
+
+### 8.1 Unconditional coverage
+
+The Kupiec likelihood-ratio test will evaluate
+
+```math
+H_0:\Pr(I_t=1)=p
+\qquad\text{against}\qquad
+H_1:\Pr(I_t=1)\ne p.
+```
+
+If $T$ is the number of forecasts, $x=\sum_t I_t$, and
+$\widehat p=x/T$, the statistic is
+
+```math
+LR_{\mathrm{uc}}
+=
+-2\log\left[
+\frac{(1-p)^{T-x}p^x}
+{(1-\widehat p)^{T-x}\widehat p^x}
+\right].
+```
+
+Terms of the form $0\log(0)$ are evaluated as zero so samples containing no
+exceedances or only exceedances remain defined. Under the null hypothesis,
+$LR_{\mathrm{uc}}$ is compared with an asymptotic chi-square distribution
+with one degree of freedom.
+
+All tests use a two-sided 5% significance level. The null is rejected only
+when the p-value is strictly below 0.05. A non-rejection will be described as
+insufficient evidence against the null, not as proof that the model is
+correct. The direction of any coverage error will be reported separately:
+too few exceedances indicate conservatism and too many indicate
+underestimation of risk.
+
+The Kupiec test evaluates only the full-sample exceedance frequency. It does
+not establish that exceedances are independent through time. Christoffersen
+independence and conditional-coverage tests will therefore be reported as a
+separate layer.
+
+### 8.2 Statistical reporting and multiplicity
+
+Raw statistics and p-values will always be retained. Christoffersen
+conditional coverage will be the primary overall VaR adequacy test for each
+model-confidence pair, with Kupiec coverage and Christoffersen independence
+reported as interpretable component diagnostics. Final simultaneous claims
+across the nine model-confidence pairs will additionally report Holm-adjusted
+p-values for the primary-test family.
+
+Later pairwise model-comparison tests based on VaR quantile loss and joint
+VaR-Expected-Shortfall loss will form separate, predeclared multiple-testing
+families. Descriptive annual, stress-period, severity, and Basel-style results
+will not be presented as independent formal tests unless an inferential rule
+has been specified in advance.
+
 Fewer exceedances do not automatically indicate a better model. A model can produce too few exceedances because it is excessively conservative.
 
 Expected Shortfall evaluation will examine the severity of losses beyond the VaR threshold rather than relying only on the number of VaR exceedances.
 
-The precise statistical tests and their decision rules will be documented
-before the final backtest results are interpreted.
+Exact 95% binomial intervals will accompany exceedance-rate figures to show
+sampling uncertainty. Formal conclusions will continue to follow the
+predeclared hypothesis tests rather than visual inspection alone.
 
 ## 9. Decisions still to be finalized
 
 The following choices remain open and must be documented before the relevant experiments begin:
 
 - missing-data exclusion rules;
-- statistical-test decision rules.
+- the detailed DQ-test regressors and lag count;
+- the HAC bandwidth rule for pairwise forecast-comparison tests.
 
 Material changes to these conventions will be recorded in `docs/decisions.md`.
