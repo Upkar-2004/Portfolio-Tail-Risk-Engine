@@ -1,7 +1,7 @@
 """Forecast diagnostics and comparative model evaluation."""
 
 from dataclasses import dataclass
-from math import erfc, isfinite, log, sqrt
+from math import erfc, exp, isfinite, log, sqrt
 from numbers import Integral, Real
 
 import numpy as np
@@ -21,6 +21,30 @@ class KupiecTestResult:
     p_value: float
     significance_level: float
     reject_null: bool
+
+
+
+@dataclass(frozen=True)
+class VaRExceedanceTransitions:
+    """Counts of consecutive VaR exceedance states."""
+
+    n00: int
+    n01: int
+    n10: int
+    n11: int
+
+    @property
+    def transition_count(self) -> int:
+        """Return the total number of observed transitions."""
+
+        return (
+            self.n00
+            + self.n01
+            + self.n10
+            + self.n11
+        )
+
+
 
 
 def summarize_gaussian_monte_carlo_errors(
@@ -515,3 +539,608 @@ def evaluate_var_unconditional_coverage(
     )
 
     return summary.join(test_results)
+
+
+def adjust_p_values_holm(
+    p_values: pd.Series,
+    significance_level: float = 0.05,
+) -> pd.DataFrame:
+    """Adjust a family of p-values using Holm's procedure.
+
+    The returned table preserves the original index and includes the
+    raw p-value, adjusted p-value, and adjusted rejection decision.
+    """
+
+    if not isinstance(p_values, pd.Series):
+        raise TypeError(
+            "P-values must be a pandas Series."
+        )
+
+    if p_values.empty:
+        raise ValueError(
+            "P-values must not be empty."
+        )
+
+    if p_values.index.has_duplicates:
+        raise ValueError(
+            "P-value index entries must be unique."
+        )
+
+    if pd.api.types.is_bool_dtype(p_values):
+        raise ValueError(
+            "P-values must be finite numbers between zero and one."
+        )
+
+    try:
+        values = p_values.to_numpy(dtype=float)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "P-values must be finite numbers between zero and one."
+        ) from error
+
+    if (
+        not np.isfinite(values).all()
+        or (values < 0.0).any()
+        or (values > 1.0).any()
+    ):
+        raise ValueError(
+            "P-values must be finite numbers between zero and one."
+        )
+
+    if (
+        isinstance(significance_level, bool)
+        or not isinstance(significance_level, Real)
+        or not isfinite(significance_level)
+        or not 0.0 < significance_level < 1.0
+    ):
+        raise ValueError(
+            "Significance level must be a finite real number "
+            "strictly between 0 and 1."
+        )
+
+    test_count = len(values)
+
+    sorted_positions = np.argsort(
+        values,
+        kind="stable",
+    )
+    sorted_p_values = values[
+        sorted_positions
+    ]
+    multipliers = np.arange(
+        test_count,
+        0,
+        -1,
+        dtype=float,
+    )
+
+    adjusted_sorted = (
+        sorted_p_values * multipliers
+    )
+    adjusted_sorted = np.maximum.accumulate(
+        adjusted_sorted
+    )
+    adjusted_sorted = np.minimum(
+        adjusted_sorted,
+        1.0,
+    )
+
+    adjusted_values = np.empty(
+        test_count,
+        dtype=float,
+    )
+    adjusted_values[
+        sorted_positions
+    ] = adjusted_sorted
+
+    return pd.DataFrame(
+        {
+            "raw_p_value": values,
+            "holm_adjusted_p_value": adjusted_values,
+            "reject_null_holm": (
+                adjusted_values
+                < float(significance_level)
+            ),
+        },
+        index=p_values.index.copy(),
+    )
+
+
+
+
+def count_var_exceedance_transitions(
+    exceedances: pd.Series,
+) -> VaRExceedanceTransitions:
+    """Count consecutive states in an ordered VaR breach sequence.
+
+    The first digit represents the preceding session and the second
+    digit represents the current session. False is state zero and
+    True is state one.
+    """
+
+    if not isinstance(exceedances, pd.Series):
+        raise TypeError(
+            "Exceedances must be a pandas Series."
+        )
+
+    if len(exceedances) < 2:
+        raise ValueError(
+            "Exceedances must contain at least two observations."
+        )
+
+    if (
+        not pd.api.types.is_bool_dtype(exceedances)
+        or exceedances.isna().any()
+    ):
+        raise ValueError(
+            "Exceedance indicators must be boolean values."
+        )
+
+    if exceedances.index.has_duplicates:
+        raise ValueError(
+            "Exceedance index entries must be unique."
+        )
+
+    if not exceedances.index.is_monotonic_increasing:
+        raise ValueError(
+            "Exceedance observations must be ordered by "
+            "increasing index."
+        )
+
+    values = exceedances.to_numpy(dtype=bool)
+    previous_states = values[:-1]
+    current_states = values[1:]
+
+    n00 = int(
+        np.count_nonzero(
+            ~previous_states & ~current_states
+        )
+    )
+    n01 = int(
+        np.count_nonzero(
+            ~previous_states & current_states
+        )
+    )
+    n10 = int(
+        np.count_nonzero(
+            previous_states & ~current_states
+        )
+    )
+    n11 = int(
+        np.count_nonzero(
+            previous_states & current_states
+        )
+    )
+
+    return VaRExceedanceTransitions(
+        n00=n00,
+        n01=n01,
+        n10=n10,
+        n11=n11,
+    )
+
+
+
+@dataclass(frozen=True)
+class ChristoffersenIndependenceTestResult:
+    """Result of a Christoffersen exceedance-independence test."""
+
+    transitions: VaRExceedanceTransitions
+    transition_breach_probability: float
+    breach_probability_after_no_breach: float | None
+    breach_probability_after_breach: float | None
+    likelihood_ratio: float
+    p_value: float
+    significance_level: float
+    reject_null: bool
+
+
+
+
+@dataclass(frozen=True)
+class ChristoffersenConditionalCoverageTestResult:
+    """Result of a Christoffersen conditional-coverage test."""
+
+    unconditional_coverage: KupiecTestResult
+    independence: ChristoffersenIndependenceTestResult
+    likelihood_ratio: float
+    p_value: float
+    significance_level: float
+    reject_null: bool
+
+
+
+
+
+def _calculate_bernoulli_log_likelihood(
+    success_count: int,
+    failure_count: int,
+    probability: float,
+) -> float:
+    """Calculate a boundary-safe Bernoulli log likelihood."""
+
+    log_likelihood = 0.0
+
+    if success_count > 0:
+        log_likelihood += (
+            success_count * log(probability)
+        )
+
+    if failure_count > 0:
+        log_likelihood += (
+            failure_count * log(1.0 - probability)
+        )
+
+    return log_likelihood
+
+
+
+def calculate_christoffersen_independence(
+    exceedances: pd.Series,
+    significance_level: float = 0.05,
+) -> ChristoffersenIndependenceTestResult:
+    """Test whether VaR exceedances are independent through time."""
+
+    if (
+        isinstance(significance_level, bool)
+        or not isinstance(significance_level, Real)
+        or not isfinite(significance_level)
+        or not 0.0 < significance_level < 1.0
+    ):
+        raise ValueError(
+            "Significance level must be a finite real number "
+            "strictly between 0 and 1."
+        )
+
+    significance_level = float(significance_level)
+
+    transitions = count_var_exceedance_transitions(
+        exceedances=exceedances,
+    )
+
+    breach_transition_count = (
+        transitions.n01 + transitions.n11
+    )
+    non_breach_transition_count = (
+        transitions.n00 + transitions.n10
+    )
+    transition_count = transitions.transition_count
+
+    transition_breach_probability = (
+        breach_transition_count / transition_count
+    )
+
+    after_no_breach_count = (
+        transitions.n00 + transitions.n01
+    )
+    after_breach_count = (
+        transitions.n10 + transitions.n11
+    )
+
+    probability_after_no_breach: float | None = None
+    probability_after_breach: float | None = None
+
+    null_log_likelihood = (
+        _calculate_bernoulli_log_likelihood(
+            success_count=breach_transition_count,
+            failure_count=non_breach_transition_count,
+            probability=transition_breach_probability,
+        )
+    )
+
+    alternative_log_likelihood = 0.0
+
+    if after_no_breach_count > 0:
+        probability_after_no_breach = (
+            transitions.n01 / after_no_breach_count
+        )
+        alternative_log_likelihood += (
+            _calculate_bernoulli_log_likelihood(
+                success_count=transitions.n01,
+                failure_count=transitions.n00,
+                probability=probability_after_no_breach,
+            )
+        )
+
+    if after_breach_count > 0:
+        probability_after_breach = (
+            transitions.n11 / after_breach_count
+        )
+        alternative_log_likelihood += (
+            _calculate_bernoulli_log_likelihood(
+                success_count=transitions.n11,
+                failure_count=transitions.n10,
+                probability=probability_after_breach,
+            )
+        )
+
+    likelihood_ratio = max(
+        0.0,
+        -2.0
+        * (
+            null_log_likelihood
+            - alternative_log_likelihood
+        ),
+    )
+
+    p_value = erfc(
+        sqrt(likelihood_ratio / 2.0)
+    )
+
+    return ChristoffersenIndependenceTestResult(
+        transitions=transitions,
+        transition_breach_probability=(
+            transition_breach_probability
+        ),
+        breach_probability_after_no_breach=(
+            probability_after_no_breach
+        ),
+        breach_probability_after_breach=(
+            probability_after_breach
+        ),
+        likelihood_ratio=likelihood_ratio,
+        p_value=p_value,
+        significance_level=significance_level,
+        reject_null=p_value < significance_level,
+    )
+
+
+
+
+def calculate_christoffersen_conditional_coverage(
+    exceedances: pd.Series,
+    confidence_level: float,
+    significance_level: float = 0.05,
+) -> ChristoffersenConditionalCoverageTestResult:
+    """Test correct VaR coverage and exceedance independence jointly.
+
+    The conditional-coverage likelihood ratio is the sum of the
+    Kupiec unconditional-coverage statistic and the Christoffersen
+    independence statistic. Under the joint null hypothesis, it has
+    an asymptotic chi-square distribution with two degrees of freedom.
+    """
+
+    independence_result = (
+        calculate_christoffersen_independence(
+            exceedances=exceedances,
+            significance_level=significance_level,
+        )
+    )
+
+    unconditional_result = (
+        calculate_kupiec_unconditional_coverage(
+            exceedance_count=int(exceedances.sum()),
+            observation_count=len(exceedances),
+            confidence_level=confidence_level,
+            significance_level=significance_level,
+        )
+    )
+
+    likelihood_ratio = (
+        unconditional_result.likelihood_ratio
+        + independence_result.likelihood_ratio
+    )
+
+    # The chi-square survival function with two degrees of freedom
+    # simplifies to exp(-x / 2).
+    p_value = exp(
+        -likelihood_ratio / 2.0
+    )
+
+    return ChristoffersenConditionalCoverageTestResult(
+        unconditional_coverage=unconditional_result,
+        independence=independence_result,
+        likelihood_ratio=likelihood_ratio,
+        p_value=p_value,
+        significance_level=float(significance_level),
+        reject_null=p_value < significance_level,
+    )
+
+
+
+
+def evaluate_var_coverage(
+    forecasts: pd.DataFrame,
+    significance_level: float = 0.05,
+) -> pd.DataFrame:
+    """Evaluate VaR coverage and independence by confidence level.
+
+    The returned table combines descriptive exceedance summaries,
+    Kupiec unconditional coverage, Christoffersen independence, and
+    Christoffersen conditional coverage.
+    """
+
+    summary = summarize_var_exceedances(
+        forecasts=forecasts,
+    )
+    test_records: list[
+        dict[str, float | int | bool | None]
+    ] = []
+
+    for confidence_level in summary.index:
+        level_forecasts = forecasts.xs(
+            confidence_level,
+            level="confidence_level",
+        )
+        exceedances = level_forecasts[
+            "var_exceedance"
+        ]
+
+        conditional_result = (
+            calculate_christoffersen_conditional_coverage(
+                exceedances=exceedances,
+                confidence_level=float(confidence_level),
+                significance_level=significance_level,
+            )
+        )
+        unconditional_result = (
+            conditional_result.unconditional_coverage
+        )
+        independence_result = (
+            conditional_result.independence
+        )
+        transitions = independence_result.transitions
+
+        test_records.append(
+            {
+                "transition_n00": transitions.n00,
+                "transition_n01": transitions.n01,
+                "transition_n10": transitions.n10,
+                "transition_n11": transitions.n11,
+                "transition_breach_probability": (
+                    independence_result
+                    .transition_breach_probability
+                ),
+                "breach_probability_after_no_breach": (
+                    independence_result
+                    .breach_probability_after_no_breach
+                ),
+                "breach_probability_after_breach": (
+                    independence_result
+                    .breach_probability_after_breach
+                ),
+                "kupiec_likelihood_ratio": (
+                    unconditional_result.likelihood_ratio
+                ),
+                "kupiec_p_value": (
+                    unconditional_result.p_value
+                ),
+                "kupiec_reject_null": (
+                    unconditional_result.reject_null
+                ),
+                "independence_likelihood_ratio": (
+                    independence_result.likelihood_ratio
+                ),
+                "independence_p_value": (
+                    independence_result.p_value
+                ),
+                "independence_reject_null": (
+                    independence_result.reject_null
+                ),
+                "conditional_coverage_likelihood_ratio": (
+                    conditional_result.likelihood_ratio
+                ),
+                "conditional_coverage_p_value": (
+                    conditional_result.p_value
+                ),
+                "conditional_coverage_reject_null": (
+                    conditional_result.reject_null
+                ),
+                "significance_level": (
+                    conditional_result.significance_level
+                ),
+            }
+        )
+
+    test_results = pd.DataFrame(
+        test_records,
+        index=summary.index,
+    )
+
+    return summary.join(test_results)
+
+
+def evaluate_models_var_coverage(
+    forecasts_by_model: dict[str, pd.DataFrame],
+    significance_level: float = 0.05,
+) -> pd.DataFrame:
+    """Evaluate aligned VaR forecasts across multiple models.
+
+    Each model receives one row per confidence level. Holm adjustment
+    is applied to the complete family of conditional-coverage tests.
+    """
+
+    if not isinstance(forecasts_by_model, dict):
+        raise TypeError(
+            "Forecasts by model must be a dictionary."
+        )
+
+    if not forecasts_by_model:
+        raise ValueError(
+            "At least one model forecast table is required."
+        )
+
+    coverage_tables: dict[str, pd.DataFrame] = {}
+    reference_index: pd.Index | None = None
+    reference_losses: np.ndarray | None = None
+    reference_model: str | None = None
+
+    for model_name, forecasts in (
+        forecasts_by_model.items()
+    ):
+        if (
+            not isinstance(model_name, str)
+            or not model_name.strip()
+        ):
+            raise ValueError(
+                "Each model name must be a non-empty string."
+            )
+
+        if not isinstance(forecasts, pd.DataFrame):
+            raise TypeError(
+                "Each model's forecasts must be a pandas DataFrame."
+            )
+
+        if (
+            reference_index is not None
+            and not forecasts.index.equals(reference_index)
+        ):
+            raise ValueError(
+                "All models must use the same ordered "
+                "forecast index."
+            )
+
+        coverage_table = evaluate_var_coverage(
+            forecasts=forecasts,
+            significance_level=significance_level,
+        )
+
+        if reference_index is None:
+            reference_index = forecasts.index
+            reference_losses = forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+            reference_model = model_name
+        else:
+            model_losses = forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+
+            if not np.allclose(
+                model_losses,
+                reference_losses,
+                rtol=1e-12,
+                atol=1e-15,
+            ):
+                raise ValueError(
+                    "All models must use identical realized "
+                    f"losses; {model_name} differs from "
+                    f"{reference_model}."
+                )
+
+        coverage_tables[model_name] = coverage_table
+
+    combined = pd.concat(
+        coverage_tables,
+        names=["model"],
+    )
+
+    holm_results = adjust_p_values_holm(
+        p_values=combined[
+            "conditional_coverage_p_value"
+        ],
+        significance_level=significance_level,
+    )
+
+    combined[
+        "conditional_coverage_holm_p_value"
+    ] = holm_results[
+        "holm_adjusted_p_value"
+    ]
+    combined[
+        "conditional_coverage_reject_null_holm"
+    ] = holm_results[
+        "reject_null_holm"
+    ]
+
+    return combined

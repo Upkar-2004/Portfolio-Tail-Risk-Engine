@@ -40,6 +40,7 @@ data/interim/
 data/processed/
 data/portfolio/
 data/backtests/
+data/evaluations/
 
 # Generated reports
 reports/tables/

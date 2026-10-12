@@ -4,10 +4,10 @@ Last updated: 2026-10-12
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
-**Current phase:** Statistical evaluation design
+**Current phase:** Statistical evaluation and uncertainty quantification
 
-**Next checkpoint:** Review and implement the Christoffersen independence and
-conditional-coverage tests.
+**Next checkpoint:** Review and implement exact 95% binomial confidence
+intervals for observed VaR exceedance rates.
 
 ## 1. Project definition and research scope
 
@@ -165,9 +165,20 @@ conditional-coverage tests.
 - [x] Review VaR exceedances and nominal coverage mathematically.
 - [x] Implement exceedance-rate summaries.
 - [x] Implement the Kupiec unconditional-coverage test.
-- [ ] Implement the Christoffersen independence test.
+- [x] Implement the Christoffersen independence and conditional-coverage
+  tests.
+- [x] Apply Holm adjustment across the nine primary conditional-coverage
+  hypotheses while retaining all raw p-values.
+- [x] Add and test a reproducible command that verifies the three source
+  backtests and saves the combined nine-row VaR coverage report.
+- [x] Generate the baseline VaR coverage report as snapshot
+  `20261012T205920459421Z_baseline_11_asset_var_coverage`; its CSV SHA-256 is
+  `5b950bf6d6561fa485e218523b4d8df7f44455706aaca2cac4cfefc3468b2ef3`.
+- [ ] Implement exact 95% binomial confidence intervals for observed
+  exceedance rates.
 - [ ] Implement Expected Shortfall diagnostics and tail-loss-severity summaries.
-- [ ] Test statistical functions against controlled examples or independent calculations.
+- [x] Test the completed VaR coverage statistics against controlled manual
+  examples, boundary cases, and integration checks.
 - [ ] Compare all models without assuming that greater complexity performs better.
 
 ## 13. C++ numerical simulation core

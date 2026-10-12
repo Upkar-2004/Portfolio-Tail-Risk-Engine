@@ -60,3 +60,28 @@ VaR and Expected Shortfall across the complete forecast timeline:
   data/portfolio/20260825T162125895465Z_baseline_11_asset \
   data/backtests/20261006T151840866317Z_baseline_11_asset_ewma_gaussian_monte_carlo
 ```
+
+## VaR coverage evaluation
+
+Generate the shared VaR coverage report after all three baseline backtests
+have been saved:
+
+```bash
+.venv/bin/python scripts/report_var_coverage.py \
+  data/portfolio/20260825T162125895465Z_baseline_11_asset \
+  data/backtests/20261005T021450532620Z_baseline_11_asset_rolling_gaussian_monte_carlo \
+  data/backtests/20261006T151840866317Z_baseline_11_asset_ewma_gaussian_monte_carlo \
+  data/backtests/20261011T112940733142Z_baseline_11_asset_filtered_historical_simulation
+```
+
+The command checksum-verifies the three source backtests, requires identical
+forecast dates and realized losses, and prints one row for each of the nine
+model-confidence combinations. It reports exceedance counts, transition
+counts, Kupiec unconditional coverage, Christoffersen independence,
+Christoffersen conditional coverage, and Holm-adjusted conditional-coverage
+decisions.
+
+Each run saves a versioned `var_coverage.csv` and `metadata.json` under
+`data/evaluations/`. These generated reports remain local and are excluded
+from Git; the metadata records the source-backtest checksums and statistical
+decision rules needed to reproduce the table.

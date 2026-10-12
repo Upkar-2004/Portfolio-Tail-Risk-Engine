@@ -500,11 +500,100 @@ too few exceedances indicate conservatism and too many indicate
 underestimation of risk.
 
 The Kupiec test evaluates only the full-sample exceedance frequency. It does
-not establish that exceedances are independent through time. Christoffersen
-independence and conditional-coverage tests will therefore be reported as a
-separate layer.
+not establish that exceedances are independent through time.
 
-### 8.2 Statistical reporting and multiplicity
+### 8.2 Independence and conditional coverage
+
+The Christoffersen independence test examines whether a VaR exceedance is
+more likely after another exceedance. For consecutive indicators, define the
+four transition counts
+
+```math
+n_{00},\quad n_{01},\quad n_{10},\quad n_{11},
+```
+
+where the first subscript is the preceding session's state and the second is
+the current session's state. For example, $n_{11}$ counts an exceedance
+followed immediately by another exceedance. The conditional breach-rate
+estimates are
+
+```math
+\widehat\pi_0
+=
+\frac{n_{01}}{n_{00}+n_{01}},
+\qquad
+\widehat\pi_1
+=
+\frac{n_{11}}{n_{10}+n_{11}},
+```
+
+and the common transition breach rate under independence is
+
+```math
+\widehat\pi
+=
+\frac{n_{01}+n_{11}}
+{n_{00}+n_{01}+n_{10}+n_{11}}.
+```
+
+The independence null states that the next-session breach probability does
+not depend on the immediately preceding breach state:
+
+```math
+H_0^{\mathrm{ind}}:\pi_0=\pi_1.
+```
+
+The restricted and first-order Markov likelihoods are
+
+```math
+\mathcal{L}_0
+=
+(1-\widehat\pi)^{n_{00}+n_{10}}
+\widehat\pi^{n_{01}+n_{11}},
+```
+
+and
+
+```math
+\mathcal{L}_1
+=
+(1-\widehat\pi_0)^{n_{00}}
+\widehat\pi_0^{n_{01}}
+\times
+(1-\widehat\pi_1)^{n_{10}}
+\widehat\pi_1^{n_{11}}.
+```
+
+The likelihood-ratio statistic is
+
+```math
+LR_{\mathrm{ind}}
+=
+-2\log\left(\frac{\mathcal{L}_0}{\mathcal{L}_1}\right)
+\ \overset{a}{\sim}\ \chi^2_1.
+```
+
+Boundary cases with an unobserved preceding state are handled by assigning
+zero log-likelihood contribution to that state. This keeps all-zero and
+all-one sequences numerically defined. The test concerns first-order
+dependence in the exceedance indicators; it does not assert that portfolio
+returns or losses themselves are independent.
+
+Christoffersen conditional coverage combines correct unconditional frequency
+and first-order independence:
+
+```math
+LR_{\mathrm{cc}}
+=
+LR_{\mathrm{uc}}+LR_{\mathrm{ind}}
+\ \overset{a}{\sim}\ \chi^2_2.
+```
+
+Rejecting conditional coverage means that the model fails at least one of the
+two requirements. The component statistics will always be reported so a
+frequency failure can be distinguished from exceedance clustering.
+
+### 8.3 Statistical reporting and multiplicity
 
 Raw statistics and p-values will always be retained. Christoffersen
 conditional coverage will be the primary overall VaR adequacy test for each
