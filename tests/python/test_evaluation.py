@@ -9,7 +9,10 @@ from tailrisk.evaluation import (
     calculate_christoffersen_independence,
     calculate_kupiec_unconditional_coverage,
     calculate_exact_binomial_interval,
+    calculate_var_es_identification_residuals,
+    calculate_newey_west_mean_test,
     count_var_exceedance_transitions,
+    evaluate_models_var_es_identification,
     evaluate_models_var_coverage,
     evaluate_var_coverage,
     evaluate_models_es_tail_severity,
@@ -17,6 +20,7 @@ from tailrisk.evaluation import (
     summarize_es_tail_severity,
     summarize_gaussian_monte_carlo_errors,
     summarize_var_exceedances,
+    summarize_var_es_identification,
 )
 
 
@@ -282,6 +286,464 @@ def _create_es_tail_severity_forecasts() -> pd.DataFrame:
     )
 
 
+
+
+def test_var_es_identification_residuals_match_manual_example(
+) -> None:
+    """Joint VaR-ES residuals match a calibrated manual example."""
+
+    dates = pd.date_range(
+        start="2025-01-02",
+        periods=4,
+        freq="D",
+    )
+    index = pd.MultiIndex.from_product(
+        [
+            dates,
+            [0.75],
+        ],
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+
+    forecasts = pd.DataFrame(
+        {
+            "realized_loss": [
+                0.000,
+                0.010,
+                0.019,
+                0.030,
+            ],
+            "value_at_risk": [
+                0.020,
+                0.020,
+                0.020,
+                0.020,
+            ],
+            "expected_shortfall": [
+                0.030,
+                0.030,
+                0.030,
+                0.030,
+            ],
+            "var_exceedance": [
+                False,
+                False,
+                False,
+                True,
+            ],
+        },
+        index=index,
+    )
+
+    result = (
+        calculate_var_es_identification_residuals(
+            forecasts=forecasts,
+        )
+    )
+
+    assert result.index.equals(forecasts.index)
+
+    assert result[
+        "tail_contribution"
+    ].to_numpy() == pytest.approx(
+        [
+            0.020,
+            0.020,
+            0.020,
+            0.060,
+        ]
+    )
+
+    assert result[
+        "var_es_identification_residual"
+    ].to_numpy() == pytest.approx(
+        [
+            -0.010,
+            -0.010,
+            -0.010,
+            0.030,
+        ]
+    )
+
+    assert result[
+        "var_es_identification_residual"
+    ].mean() == pytest.approx(0.0)
+
+
+
+
+def test_var_es_identification_summary_matches_manual_example(
+) -> None:
+    """Joint VaR-ES summary matches a calibrated manual example."""
+
+    dates = pd.date_range(
+        start="2025-01-02",
+        periods=4,
+        freq="D",
+    )
+    index = pd.MultiIndex.from_product(
+        [
+            dates,
+            [0.75],
+        ],
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+
+    forecasts = pd.DataFrame(
+        {
+            "realized_loss": [
+                0.000,
+                0.010,
+                0.019,
+                0.030,
+            ],
+            "value_at_risk": [
+                0.020,
+                0.020,
+                0.020,
+                0.020,
+            ],
+            "expected_shortfall": [
+                0.030,
+                0.030,
+                0.030,
+                0.030,
+            ],
+            "var_exceedance": [
+                False,
+                False,
+                False,
+                True,
+            ],
+        },
+        index=index,
+    )
+
+    result = summarize_var_es_identification(
+        forecasts=forecasts,
+        bandwidth=1,
+        significance_level=0.05,
+    )
+
+    summary = result.loc[0.75]
+
+    assert summary[
+        "observation_count"
+    ] == 4
+
+    assert summary[
+        "mean_tail_contribution"
+    ] == pytest.approx(0.030)
+
+    assert summary[
+        "mean_expected_shortfall"
+    ] == pytest.approx(0.030)
+
+    assert summary[
+        "mean_identification_residual"
+    ] == pytest.approx(0.0)
+
+    assert summary["hac_bandwidth"] == 1
+    assert summary[
+        "hac_long_run_variance"
+    ] == pytest.approx(0.000275)
+    assert summary[
+        "hac_standard_error"
+    ] == pytest.approx(
+        0.0082915619758885
+    )
+    assert summary[
+        "hac_test_statistic"
+    ] == pytest.approx(0.0)
+    assert summary["hac_p_value"] == pytest.approx(
+        1.0
+    )
+    assert summary[
+        "significance_level"
+    ] == pytest.approx(0.05)
+    assert not summary["hac_reject_null"]
+
+
+def test_var_es_identification_applies_hac_by_level(
+) -> None:
+    """Each confidence level receives its own HAC calibration test."""
+
+    forecasts = _create_es_tail_severity_forecasts()
+
+    result = summarize_var_es_identification(
+        forecasts=forecasts,
+        bandwidth=1,
+        significance_level=0.10,
+    )
+    residuals = (
+        calculate_var_es_identification_residuals(
+            forecasts=forecasts,
+        )
+    )
+
+    assert list(result.index) == [0.95, 0.99]
+
+    for confidence_level in result.index:
+        level_residuals = residuals.xs(
+            confidence_level,
+            level="confidence_level",
+        )[
+            "var_es_identification_residual"
+        ]
+        expected = calculate_newey_west_mean_test(
+            observations=level_residuals,
+            bandwidth=1,
+            significance_level=0.10,
+        )
+        summary = result.loc[confidence_level]
+
+        assert summary[
+            "mean_identification_residual"
+        ] == pytest.approx(expected.sample_mean)
+        assert summary[
+            "hac_bandwidth"
+        ] == expected.bandwidth
+        assert summary[
+            "hac_long_run_variance"
+        ] == pytest.approx(
+            expected.long_run_variance
+        )
+        assert summary[
+            "hac_standard_error"
+        ] == pytest.approx(
+            expected.standard_error
+        )
+        assert summary[
+            "hac_test_statistic"
+        ] == pytest.approx(
+            expected.test_statistic
+        )
+        assert summary[
+            "hac_p_value"
+        ] == pytest.approx(expected.p_value)
+        assert summary[
+            "significance_level"
+        ] == pytest.approx(0.10)
+        assert bool(
+            summary["hac_reject_null"]
+        ) is expected.reject_null
+
+
+
+
+
+
+
+def test_model_var_es_identification_combines_and_adjusts(
+) -> None:
+    """Aligned model tests form one Holm-adjusted calibration table."""
+
+    rolling_forecasts = (
+        _create_es_tail_severity_forecasts()
+    )
+    ewma_forecasts = rolling_forecasts.copy()
+    ewma_forecasts["expected_shortfall"] += 1.0
+    forecasts_by_model = {
+        "rolling_gaussian": rolling_forecasts,
+        "ewma_gaussian": ewma_forecasts,
+    }
+
+    result = evaluate_models_var_es_identification(
+        forecasts_by_model=forecasts_by_model,
+        bandwidth=1,
+        significance_level=0.10,
+    )
+
+    assert result.index.names == [
+        "model",
+        "confidence_level",
+    ]
+    assert list(
+        result.index.get_level_values("model").unique()
+    ) == [
+        "rolling_gaussian",
+        "ewma_gaussian",
+    ]
+
+    for model_name, forecasts in (
+        forecasts_by_model.items()
+    ):
+        expected = summarize_var_es_identification(
+            forecasts=forecasts,
+            bandwidth=1,
+            significance_level=0.10,
+        )
+        pd.testing.assert_frame_equal(
+            result.loc[model_name, expected.columns],
+            expected,
+        )
+
+    expected_holm = adjust_p_values_holm(
+        p_values=result["hac_p_value"],
+        significance_level=0.10,
+    )
+    assert result[
+        "hac_holm_p_value"
+    ].to_numpy() == pytest.approx(
+        expected_holm[
+            "holm_adjusted_p_value"
+        ].to_numpy()
+    )
+    assert result[
+        "hac_holm_reject_null"
+    ].equals(
+        expected_holm["reject_null_holm"]
+    )
+
+
+def test_model_var_es_identification_rejects_misaligned_index(
+) -> None:
+    """Compared calibration tests require identical ordered rows."""
+
+    rolling_forecasts = (
+        _create_es_tail_severity_forecasts()
+    )
+    ewma_forecasts = rolling_forecasts.iloc[::-1]
+
+    with pytest.raises(
+        ValueError,
+        match="same ordered forecast index",
+    ):
+        evaluate_models_var_es_identification(
+            forecasts_by_model={
+                "rolling_gaussian": rolling_forecasts,
+                "ewma_gaussian": ewma_forecasts,
+            },
+            bandwidth=1,
+        )
+
+
+def test_model_var_es_identification_rejects_different_losses(
+) -> None:
+    """Compared calibration tests require identical realized losses."""
+
+    rolling_forecasts = (
+        _create_es_tail_severity_forecasts()
+    )
+    ewma_forecasts = rolling_forecasts.copy()
+    ewma_forecasts.iloc[
+        0,
+        ewma_forecasts.columns.get_loc(
+            "realized_loss"
+        ),
+    ] += 0.25
+    ewma_forecasts["var_exceedance"] = (
+        ewma_forecasts["realized_loss"]
+        > ewma_forecasts["value_at_risk"]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="identical realized losses",
+    ):
+        evaluate_models_var_es_identification(
+            forecasts_by_model={
+                "rolling_gaussian": rolling_forecasts,
+                "ewma_gaussian": ewma_forecasts,
+            },
+            bandwidth=1,
+        )
+
+
+def test_model_var_es_identification_rejects_empty_mapping(
+) -> None:
+    """At least one model is required for joint calibration."""
+
+    with pytest.raises(
+        ValueError,
+        match="At least one model",
+    ):
+        evaluate_models_var_es_identification(
+            forecasts_by_model={},
+        )
+
+
+def test_newey_west_mean_test_matches_manual_example(
+) -> None:
+    """Newey-West calculations match a bandwidth-one example."""
+
+    observations = pd.Series(
+        [1.0, 2.0, 3.0, 4.0],
+        index=pd.date_range(
+            start="2025-01-02",
+            periods=4,
+            freq="D",
+        ),
+        name="identification_residual",
+    )
+
+    result = calculate_newey_west_mean_test(
+        observations=observations,
+        bandwidth=1,
+        significance_level=0.05,
+    )
+
+    assert result.observation_count == 4
+    assert result.bandwidth == 1
+    assert result.sample_mean == pytest.approx(2.5)
+    assert result.long_run_variance == pytest.approx(
+        1.5625
+    )
+    assert result.mean_variance == pytest.approx(
+        0.390625
+    )
+    assert result.standard_error == pytest.approx(
+        0.625
+    )
+    assert result.test_statistic == pytest.approx(
+        4.0
+    )
+    assert result.p_value == pytest.approx(
+        0.00006334248366623984
+    )
+    assert result.significance_level == pytest.approx(
+        0.05
+    )
+    assert result.reject_null
+
+
+@pytest.mark.parametrize(
+    "bad_bandwidth",
+    [
+        True,
+        -1,
+        4,
+        1.5,
+    ],
+)
+def test_newey_west_mean_test_rejects_invalid_bandwidth(
+    bad_bandwidth: object,
+) -> None:
+    """HAC bandwidth must be a valid lag count."""
+
+    observations = pd.Series(
+        [1.0, 2.0, 3.0, 4.0],
+        index=pd.date_range(
+            start="2025-01-02",
+            periods=4,
+            freq="D",
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Bandwidth must be an integer",
+    ):
+        calculate_newey_west_mean_test(
+            observations=observations,
+            bandwidth=bad_bandwidth,
+        )
 
 
 def test_es_tail_severity_matches_manual_example() -> None:

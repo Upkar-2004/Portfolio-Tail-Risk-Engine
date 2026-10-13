@@ -6,8 +6,9 @@ This checklist tracks the research, learning, and engineering progress of the Po
 
 **Current phase:** Statistical evaluation and uncertainty quantification
 
-**Next checkpoint:** Review and implement the joint VaR-Expected-Shortfall
-identification residual and its dependence-robust uncertainty procedure.
+**Next checkpoint:** Implement strictly consistent VaR quantile loss and the
+joint VaR-Expected-Shortfall FZ0 score before pairwise HAC model-comparison
+tests.
 
 ## 1. Project definition and research scope
 
@@ -183,8 +184,17 @@ identification residual and its dependence-robust uncertainty procedure.
 - [x] Generate the baseline ES tail-severity report as snapshot
   `20261013T185315140525Z_baseline_11_asset_es_tail_severity`; its CSV SHA-256
   is `206e690a10f37275e5bcd6d68b70cfdbd3b8c2eba5b9d0b9b8587b2612ab5214`.
-- [ ] Implement the joint VaR-Expected-Shortfall identification residual and
-  its predeclared dependence-robust uncertainty procedure.
+- [x] Implement the joint VaR-Expected-Shortfall identification residual and
+  its predeclared Newey-West HAC uncertainty procedure.
+- [x] Combine aligned model-confidence calibration results and apply Holm
+  adjustment across the joint nine-test family.
+- [x] Add the reproducible joint-calibration report command and save the
+  verified nine-row baseline report.
+- [x] Generate the baseline joint VaR-Expected-Shortfall calibration report as
+  snapshot
+  `20261013T214919902521Z_baseline_11_asset_var_es_joint_calibration`; its CSV
+  SHA-256 is
+  `c1d0cbca94b77d76e8fc1c2a27b928bf6a3511b7bb69ca18d3d2daf1764c0dcf`.
 - [x] Test the completed VaR coverage statistics against controlled manual
   examples, boundary cases, and integration checks.
 - [ ] Compare all models without assuming that greater complexity performs better.

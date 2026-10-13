@@ -190,3 +190,43 @@ tail summaries and later formal joint VaR-ES inference.
   exceeded forecast ES on average; a negative value will indicate the reverse.
 - Descriptive ES results alone will not establish joint calibration or model
   superiority.
+
+## 2026-10-13: Fixed HAC inference for joint VaR-ES calibration
+
+**Status:** Accepted
+
+### Context
+
+The all-session VaR-ES identification residual has expected value zero when
+the conditional VaR and Expected Shortfall forecasts are jointly calibrated.
+Its sample mean is nevertheless exposed to changing volatility and serial
+dependence, so an independent-observation standard error could overstate the
+effective amount of information and produce misleading rejection decisions.
+
+### Decision
+
+- Test the two-sided null that the population mean identification residual is
+  zero separately for each model-confidence pair.
+- Estimate uncertainty with the scalar Newey-West HAC long-run variance using
+  Bartlett weights and autocovariances divided by the observation count.
+- Use the deterministic automatic bandwidth
+  $\min\{T-1,\lfloor4(T/100)^{2/9}\rfloor\}$ unless an explicit bandwidth is
+  supplied for a controlled test or a documented robustness analysis.
+- Record the selected bandwidth, long-run variance, standard error, test
+  statistic, raw p-value, significance level, and rejection decision.
+- Use a two-sided asymptotic standard-normal p-value and a default individual
+  significance level of 5%.
+- Retain raw p-values in single-model results. Apply Holm adjustment across the
+  nine model-confidence joint-calibration hypotheses before making simultaneous
+  conclusions in the combined report.
+
+### Consequences
+
+- The test accounts for heteroskedasticity and short-range serial dependence
+  without changing the underlying sample mean residual.
+- A positive significant mean indicates joint tail-risk understatement, while
+  a negative significant mean indicates overstatement.
+- A failure to reject is reported as insufficient evidence against calibration,
+  not proof that the model is correct.
+- The bandwidth remains visible and reproducible, and alternative bandwidths
+  can be examined later without changing the baseline rule.

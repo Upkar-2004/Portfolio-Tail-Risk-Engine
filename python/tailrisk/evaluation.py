@@ -69,6 +69,27 @@ class VaRExceedanceTransitions:
 
 
 
+
+@dataclass(frozen=True)
+class NeweyWestMeanTestResult:
+    """Result of a Newey-West HAC test of a population mean."""
+
+    observation_count: int
+    bandwidth: int
+    sample_mean: float
+    long_run_variance: float
+    mean_variance: float
+    standard_error: float
+    test_statistic: float
+    p_value: float
+    significance_level: float
+    reject_null: bool
+
+
+
+
+
+
 def summarize_gaussian_monte_carlo_errors(
     analytic_forecasts: pd.DataFrame,
     monte_carlo_forecasts: pd.DataFrame,
@@ -687,6 +708,359 @@ def summarize_es_tail_severity(
 
 
 
+def calculate_var_es_identification_residuals(
+    forecasts: pd.DataFrame,
+) -> pd.DataFrame:
+    """Calculate joint VaR-ES residuals for every forecast row.
+
+    The identification residual equals the realized joint tail
+    contribution minus the Expected Shortfall forecast. A correctly
+    calibrated VaR-ES pair has an expected residual of zero.
+    """
+
+    # Reuse the established validation for the forecast index,
+    # confidence levels, realized losses, strict VaR exceedances,
+    # finite Expected Shortfall values, and ES >= VaR ordering.
+    summarize_es_tail_severity(
+        forecasts=forecasts,
+    )
+
+    confidence_levels = (
+        forecasts.index
+        .get_level_values("confidence_level")
+        .to_numpy(dtype=float)
+    )
+    realized_losses = forecasts[
+        "realized_loss"
+    ].to_numpy(dtype=float)
+    value_at_risk = forecasts[
+        "value_at_risk"
+    ].to_numpy(dtype=float)
+    expected_shortfall = forecasts[
+        "expected_shortfall"
+    ].to_numpy(dtype=float)
+    exceedance_indicators = forecasts[
+        "var_exceedance"
+    ].to_numpy(dtype=float)
+
+    tail_contributions = (
+        value_at_risk
+        + (
+            exceedance_indicators
+            / (1.0 - confidence_levels)
+        )
+        * (realized_losses - value_at_risk)
+    )
+    identification_residuals = (
+        tail_contributions - expected_shortfall
+    )
+
+    return pd.DataFrame(
+        {
+            "tail_contribution": tail_contributions,
+            "var_es_identification_residual": (
+                identification_residuals
+            ),
+        },
+        index=forecasts.index.copy(),
+    )
+
+
+
+
+
+
+def summarize_var_es_identification(
+    forecasts: pd.DataFrame,
+    bandwidth: int | None = None,
+    significance_level: float = 0.05,
+) -> pd.DataFrame:
+    """Test joint VaR-ES calibration by confidence level.
+
+    A positive mean residual indicates average tail-risk
+    underestimation. A negative mean residual indicates average
+    overestimation. Newey-West HAC uncertainty accounts for serial
+    dependence and heteroskedasticity in the residual series.
+    """
+
+    residuals = (
+        calculate_var_es_identification_residuals(
+            forecasts=forecasts,
+        )
+    )
+
+    analysis = residuals.copy()
+    analysis["expected_shortfall"] = forecasts[
+        "expected_shortfall"
+    ].to_numpy(dtype=float)
+
+    records: list[
+        dict[str, float | int | bool]
+    ] = []
+
+    for confidence_level, level_analysis in (
+        analysis.groupby(
+            level="confidence_level",
+            sort=False,
+        )
+    ):
+        mean_tail_contribution = float(
+            level_analysis[
+                "tail_contribution"
+            ].mean()
+        )
+        mean_expected_shortfall = float(
+            level_analysis[
+                "expected_shortfall"
+            ].mean()
+        )
+        mean_identification_residual = float(
+            level_analysis[
+                "var_es_identification_residual"
+            ].mean()
+        )
+        residual_series = level_analysis[
+            "var_es_identification_residual"
+        ].copy()
+        residual_series.index = (
+            residual_series.index.droplevel(
+                "confidence_level"
+            )
+        )
+        hac_result = calculate_newey_west_mean_test(
+            observations=residual_series,
+            bandwidth=bandwidth,
+            significance_level=significance_level,
+        )
+
+        records.append(
+            {
+                "confidence_level": float(
+                    confidence_level
+                ),
+                "observation_count": len(
+                    level_analysis
+                ),
+                "mean_tail_contribution": (
+                    mean_tail_contribution
+                ),
+                "mean_expected_shortfall": (
+                    mean_expected_shortfall
+                ),
+                "mean_identification_residual": (
+                    mean_identification_residual
+                ),
+                "hac_bandwidth": (
+                    hac_result.bandwidth
+                ),
+                "hac_long_run_variance": (
+                    hac_result.long_run_variance
+                ),
+                "hac_standard_error": (
+                    hac_result.standard_error
+                ),
+                "hac_test_statistic": (
+                    hac_result.test_statistic
+                ),
+                "hac_p_value": hac_result.p_value,
+                "significance_level": (
+                    hac_result.significance_level
+                ),
+                "hac_reject_null": (
+                    hac_result.reject_null
+                ),
+            }
+        )
+
+    return (
+        pd.DataFrame.from_records(records)
+        .set_index("confidence_level")
+    )
+
+
+
+
+def calculate_newey_west_mean_test(
+    observations: pd.Series,
+    bandwidth: int | None = None,
+    significance_level: float = 0.05,
+) -> NeweyWestMeanTestResult:
+    """Test whether a time-series mean is zero using HAC uncertainty.
+
+    Bartlett weights are applied to autocovariances through the selected
+    bandwidth. If no bandwidth is supplied, a deterministic automatic
+    bandwidth rule is used.
+    """
+
+    if not isinstance(observations, pd.Series):
+        raise TypeError(
+            "Observations must be a pandas Series."
+        )
+
+    if len(observations) < 2:
+        raise ValueError(
+            "At least two observations are required."
+        )
+
+    if observations.index.has_duplicates:
+        raise ValueError(
+            "Observation index entries must be unique."
+        )
+
+    if not observations.index.is_monotonic_increasing:
+        raise ValueError(
+            "Observations must be ordered by increasing index."
+        )
+
+    if any(
+        isinstance(value, (bool, np.bool_))
+        for value in observations
+    ):
+        raise ValueError(
+            "Observations must contain finite numbers."
+        )
+
+    try:
+        values = observations.to_numpy(dtype=float)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "Observations must contain finite numbers."
+        ) from error
+
+    if not np.isfinite(values).all():
+        raise ValueError(
+            "Observations must contain finite numbers."
+        )
+
+    if (
+        isinstance(significance_level, bool)
+        or not isinstance(significance_level, Real)
+        or not isfinite(significance_level)
+        or not 0.0 < significance_level < 1.0
+    ):
+        raise ValueError(
+            "Significance level must be a finite real number "
+            "strictly between 0 and 1."
+        )
+
+    observation_count = len(values)
+
+    if bandwidth is None:
+        selected_bandwidth = int(
+            4.0
+            * (
+                observation_count / 100.0
+            ) ** (2.0 / 9.0)
+        )
+        selected_bandwidth = min(
+            selected_bandwidth,
+            observation_count - 1,
+        )
+    else:
+        if (
+            isinstance(bandwidth, bool)
+            or not isinstance(bandwidth, Integral)
+            or bandwidth < 0
+            or bandwidth >= observation_count
+        ):
+            raise ValueError(
+                "Bandwidth must be an integer between zero "
+                "and one less than the observation count."
+            )
+
+        selected_bandwidth = int(bandwidth)
+
+    sample_mean = float(values.mean())
+    centered_values = values - sample_mean
+
+    lag_zero_covariance = float(
+        np.dot(
+            centered_values,
+            centered_values,
+        )
+        / observation_count
+    )
+
+    long_run_variance = lag_zero_covariance
+
+    for lag in range(
+        1,
+        selected_bandwidth + 1,
+    ):
+        lagged_covariance = float(
+            np.dot(
+                centered_values[lag:],
+                centered_values[:-lag],
+            )
+            / observation_count
+        )
+        bartlett_weight = (
+            1.0
+            - lag / (selected_bandwidth + 1.0)
+        )
+
+        long_run_variance += (
+            2.0
+            * bartlett_weight
+            * lagged_covariance
+        )
+
+    # Bartlett-weighted HAC variance is nonnegative in theory.
+    # This protects against tiny negative floating-point artifacts.
+    long_run_variance = max(
+        0.0,
+        float(long_run_variance),
+    )
+    mean_variance = (
+        long_run_variance / observation_count
+    )
+    standard_error = sqrt(mean_variance)
+
+    if standard_error == 0.0:
+        if sample_mean == 0.0:
+            test_statistic = 0.0
+            p_value = 1.0
+        else:
+            test_statistic = (
+                float("inf")
+                if sample_mean > 0.0
+                else -float("inf")
+            )
+            p_value = 0.0
+    else:
+        test_statistic = (
+            sample_mean / standard_error
+        )
+        p_value = erfc(
+            abs(test_statistic) / sqrt(2.0)
+        )
+
+    significance_level = float(
+        significance_level
+    )
+
+    return NeweyWestMeanTestResult(
+        observation_count=observation_count,
+        bandwidth=selected_bandwidth,
+        sample_mean=sample_mean,
+        long_run_variance=long_run_variance,
+        mean_variance=mean_variance,
+        standard_error=standard_error,
+        test_statistic=test_statistic,
+        p_value=p_value,
+        significance_level=significance_level,
+        reject_null=p_value < significance_level,
+    )
+
+
+
+
+
+
+
+
+
+
 def evaluate_models_es_tail_severity(
     forecasts_by_model: dict[str, pd.DataFrame],
 ) -> pd.DataFrame:
@@ -777,6 +1151,113 @@ def evaluate_models_es_tail_severity(
 
 
 
+
+
+def evaluate_models_var_es_identification(
+    forecasts_by_model: dict[str, pd.DataFrame],
+    bandwidth: int | None = None,
+    significance_level: float = 0.05,
+) -> pd.DataFrame:
+    """Test joint VaR-ES calibration across aligned models.
+
+    Each model receives one row per confidence level. Holm adjustment
+    is applied to the complete family of HAC mean-test p-values.
+    """
+
+    if not isinstance(forecasts_by_model, dict):
+        raise TypeError(
+            "Forecasts by model must be a dictionary."
+        )
+
+    if not forecasts_by_model:
+        raise ValueError(
+            "At least one model forecast table is required."
+        )
+
+    calibration_tables: dict[str, pd.DataFrame] = {}
+    reference_index: pd.Index | None = None
+    reference_losses: np.ndarray | None = None
+    reference_model: str | None = None
+
+    for model_name, forecasts in (
+        forecasts_by_model.items()
+    ):
+        if (
+            not isinstance(model_name, str)
+            or not model_name.strip()
+        ):
+            raise ValueError(
+                "Each model name must be a non-empty string."
+            )
+
+        if not isinstance(forecasts, pd.DataFrame):
+            raise TypeError(
+                "Each model's forecasts must be a pandas DataFrame."
+            )
+
+        if (
+            reference_index is not None
+            and not forecasts.index.equals(
+                reference_index
+            )
+        ):
+            raise ValueError(
+                "All models must use the same ordered "
+                "forecast index."
+            )
+
+        calibration_table = (
+            summarize_var_es_identification(
+                forecasts=forecasts,
+                bandwidth=bandwidth,
+                significance_level=significance_level,
+            )
+        )
+
+        if reference_index is None:
+            reference_index = forecasts.index
+            reference_losses = forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+            reference_model = model_name
+        else:
+            model_losses = forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+
+            if not np.allclose(
+                model_losses,
+                reference_losses,
+                rtol=1e-12,
+                atol=1e-15,
+            ):
+                raise ValueError(
+                    "All models must use identical realized "
+                    f"losses; {model_name} differs from "
+                    f"{reference_model}."
+                )
+
+        calibration_tables[model_name] = (
+            calibration_table
+        )
+
+    combined = pd.concat(
+        calibration_tables,
+        names=["model"],
+    )
+    holm_results = adjust_p_values_holm(
+        p_values=combined["hac_p_value"],
+        significance_level=significance_level,
+    )
+
+    combined["hac_holm_p_value"] = holm_results[
+        "holm_adjusted_p_value"
+    ]
+    combined["hac_holm_reject_null"] = (
+        holm_results["reject_null_holm"]
+    )
+
+    return combined
 
 
 def calculate_kupiec_unconditional_coverage(

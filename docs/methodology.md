@@ -694,6 +694,40 @@ reported as interpretable component diagnostics. Final simultaneous claims
 across the nine model-confidence pairs will additionally report Holm-adjusted
 p-values for the primary-test family.
 
+For either nine-test family, let the ordered raw p-values be
+
+```math
+p_{(1)}\le p_{(2)}\le\cdots\le p_{(m)},
+\qquad m=9.
+```
+
+Holm's step-down procedure compares the $j$th ordered p-value with
+
+```math
+\frac{s}{m-j+1},
+```
+
+where $s$ is the family significance level. Testing proceeds from the
+smallest p-value and stops rejecting when the first comparison fails. The
+equivalent adjusted p-value for ordered position $j$ is
+
+```math
+\widetilde{p}_{(j)}
+=
+\min\left\{
+1,
+\max_{1\le k\le j}
+\left[(m-k+1)p_{(k)}\right]
+\right\}.
+```
+
+The running maximum ensures that adjusted p-values cannot decrease as the raw
+p-values increase. Adjusted values are then returned to their original
+model-confidence rows. This controls the probability of making at least one
+false rejection within the declared family. The nine conditional-coverage
+tests and the nine joint VaR-ES calibration tests are treated as separate
+families because they answer different statistical questions.
+
 Later pairwise model-comparison tests based on VaR quantile loss and joint
 VaR-Expected-Shortfall loss will form separate, predeclared multiple-testing
 families. Descriptive annual, stress-period, severity, and Basel-style results
@@ -901,12 +935,145 @@ Because this residual depends on both VaR and Expected Shortfall, a nonzero
 mean cannot automatically be attributed to the ES component alone when VaR
 is miscalibrated.
 
-Serial dependence and volatility clustering can invalidate independent-data
-standard errors for these residuals. Formal uncertainty will therefore use a
-predeclared dependence-robust procedure, such as a HAC estimator or
-moving-block bootstrap, before statistical claims are made. Jointly
-consistent VaR-ES scores will be reserved for formal pairwise model
-comparison rather than mixed into the descriptive severity summary.
+The formal calibration null and two-sided alternative are
+
+```math
+H_0:
+\mathbb{E}[Z_{t,\alpha}]=0,
+\qquad
+H_1:
+\mathbb{E}[Z_{t,\alpha}]\ne0.
+```
+
+The sample mean need not equal zero exactly even under a correctly calibrated
+model. Formal inference must therefore measure how large the observed mean is
+relative to its sampling uncertainty. An ordinary independent-observation
+standard error is inappropriate when residual volatility changes through time
+or residuals remain correlated across nearby sessions. The project uses a
+Newey-West heteroskedasticity-and-autocorrelation-consistent, or HAC, estimator
+for this uncertainty.
+
+First center the residuals around their sample mean:
+
+```math
+\widetilde{Z}_{t,\alpha}
+=
+Z_{t,\alpha}-\overline{Z}_{\alpha}.
+```
+
+For lag $k$, estimate the residual autocovariance using denominator $T$:
+
+```math
+\widehat{\gamma}_{k,\alpha}
+=
+\frac{1}{T}
+\sum_{t=k+1}^{T}
+\widetilde{Z}_{t,\alpha}
+\widetilde{Z}_{t-k,\alpha}.
+```
+
+The lag-zero value $\widehat{\gamma}_{0,\alpha}$ measures the residual
+variance. Positive values at later lags indicate that residuals of similar
+sign or magnitude tend to occur close together. For bandwidth $K$, the
+Newey-West estimator applies Bartlett weights
+
+```math
+w_k
+=
+1-\frac{k}{K+1},
+\qquad
+k=1,\ldots,K,
+```
+
+and estimates the long-run variance as
+
+```math
+\widehat{\Omega}_{\alpha}
+=
+\widehat{\gamma}_{0,\alpha}
++
+2
+\sum_{k=1}^{K}
+w_k\widehat{\gamma}_{k,\alpha}.
+```
+
+The Bartlett weights decline linearly with the lag, so nearby dependence
+receives more weight than more distant dependence. The factor of two includes
+the matching positive and negative autocovariance lags. The estimated variance
+and standard error of the sample mean are
+
+```math
+\widehat{\operatorname{Var}}_{\mathrm{HAC}}
+\left(\overline{Z}_{\alpha}\right)
+=
+\frac{\widehat{\Omega}_{\alpha}}{T},
+```
+
+and
+
+```math
+\operatorname{SE}_{\mathrm{HAC}}
+\left(\overline{Z}_{\alpha}\right)
+=
+\sqrt{
+\frac{\widehat{\Omega}_{\alpha}}{T}
+}.
+```
+
+Unless an explicit bandwidth is supplied for a controlled test or robustness
+analysis, the deterministic bandwidth rule is
+
+```math
+K
+=
+\min\left\{
+T-1,
+\left\lfloor
+4\left(\frac{T}{100}\right)^{2/9}
+\right\rfloor
+\right\}.
+```
+
+Recording $K$ in every result makes the dependence assumption auditable and
+reproducible. The HAC test statistic is
+
+```math
+T_{\mathrm{HAC},\alpha}
+=
+\frac{
+\overline{Z}_{\alpha}
+}{
+\operatorname{SE}_{\mathrm{HAC}}
+(\overline{Z}_{\alpha})
+}.
+```
+
+Using its asymptotic standard-normal reference distribution, the two-sided
+p-value is
+
+```math
+p_{\alpha}
+=
+2\left[
+1-\Phi\left(
+\left|T_{\mathrm{HAC},\alpha}\right|
+\right)
+\right].
+```
+
+At significance level $s=0.05$, the individual null is rejected when
+$p_{\alpha}<s$. A statistically significant positive mean indicates that the
+joint VaR-ES forecasts understate the realized tail contribution on average;
+a statistically significant negative mean indicates overstatement. Failure to
+reject does not prove that the forecasts are correct: it means the sample does
+not provide sufficient evidence against zero mean under this test.
+
+The single-model tables retain raw p-values. When the three models and three
+confidence levels are combined, Holm adjustment will be applied across the
+nine joint-calibration hypotheses before simultaneous claims are made.
+Jointly consistent VaR-ES scoring rules will remain separate and will be used
+for formal pairwise model comparison rather than mixed into this calibration
+test or the descriptive severity summary.
 
 ## 9. Decisions still to be finalized
 
