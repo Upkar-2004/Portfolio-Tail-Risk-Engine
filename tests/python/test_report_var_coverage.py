@@ -100,6 +100,18 @@ def _create_coverage_table() -> pd.DataFrame:
                 5,
                 6,
             ],
+            "interval_confidence_level": [
+                0.95,
+                0.95,
+            ],
+            "exceedance_rate_ci_lower": [
+                0.0164,
+                0.0223,
+            ],
+            "exceedance_rate_ci_upper": [
+                0.1128,
+                0.1260,
+            ],
             "conditional_coverage_p_value": [
                 0.50,
                 0.25,
@@ -217,6 +229,11 @@ def test_save_var_coverage_report_writes_verified_files(
     )
     assert len(saved_coverage) == 2
     assert list(saved_coverage["model"]) == model_names
+    assert {
+        "interval_confidence_level",
+        "exceedance_rate_ci_lower",
+        "exceedance_rate_ci_upper",
+    }.issubset(saved_coverage.columns)
 
     with metadata_path.open(
         "r",
@@ -225,6 +242,12 @@ def test_save_var_coverage_report_writes_verified_files(
         metadata = json.load(stream)
 
     assert metadata["report"]["name"] == "var_coverage"
+    assert metadata[
+        "report"
+    ]["exceedance_rate_interval"] == {
+        "method": "clopper_pearson_exact",
+        "confidence_level": 0.95,
+    }
     assert metadata[
         "report"
     ]["multiplicity_adjustment"]["method"] == "holm"
@@ -276,4 +299,49 @@ def test_save_var_coverage_report_does_not_overwrite(
     with pytest.raises(FileExistsError):
         report_module.save_var_coverage_report(
             **arguments
+        )
+
+
+def test_save_var_coverage_report_rejects_mixed_intervals(
+    tmp_path: Path,
+) -> None:
+    """A report cannot mix interval levels across coverage rows."""
+
+    coverage = _create_coverage_table()
+    coverage.iloc[
+        1,
+        coverage.columns.get_loc(
+            "interval_confidence_level"
+        ),
+    ] = 0.90
+    model_names = list(
+        coverage.index.get_level_values(
+            "model"
+        ).unique()
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="one interval confidence level",
+    ):
+        report_module.save_var_coverage_report(
+            coverage=coverage,
+            source_snapshots={
+                model_name: Path(model_name)
+                for model_name in model_names
+            },
+            source_metadata={
+                model_name: _create_metadata(model_name)
+                for model_name in model_names
+            },
+            output_root=tmp_path,
+            snapshot_id="mixed_intervals",
+            generated_at=datetime(
+                2026,
+                10,
+                12,
+                tzinfo=timezone.utc,
+            ),
+            experiment_name="baseline_11_asset",
+            significance_level=0.05,
         )

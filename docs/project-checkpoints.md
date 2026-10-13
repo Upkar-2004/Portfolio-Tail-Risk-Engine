@@ -6,8 +6,8 @@ This checklist tracks the research, learning, and engineering progress of the Po
 
 **Current phase:** Statistical evaluation and uncertainty quantification
 
-**Next checkpoint:** Review and implement exact 95% binomial confidence
-intervals for observed VaR exceedance rates.
+**Next checkpoint:** Review and implement Expected Shortfall diagnostics and
+tail-loss-severity summaries.
 
 ## 1. Project definition and research scope
 
@@ -172,9 +172,9 @@ intervals for observed VaR exceedance rates.
 - [x] Add and test a reproducible command that verifies the three source
   backtests and saves the combined nine-row VaR coverage report.
 - [x] Generate the baseline VaR coverage report as snapshot
-  `20261012T205920459421Z_baseline_11_asset_var_coverage`; its CSV SHA-256 is
-  `5b950bf6d6561fa485e218523b4d8df7f44455706aaca2cac4cfefc3468b2ef3`.
-- [ ] Implement exact 95% binomial confidence intervals for observed
+  `20261013T040616407287Z_baseline_11_asset_var_coverage`; its CSV SHA-256 is
+  `0bdbe92b544613ebeabc47f76defe13ce15bdd48c9aca876facc184d205defdb`.
+- [x] Implement exact 95% binomial confidence intervals for observed
   exceedance rates.
 - [ ] Implement Expected Shortfall diagnostics and tail-loss-severity summaries.
 - [x] Test the completed VaR coverage statistics against controlled manual

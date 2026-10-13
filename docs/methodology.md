@@ -465,7 +465,89 @@ Each model and confidence level will first be described by its number of
 forecasts, observed exceedance count, expected exceedance count, observed
 exceedance rate, and nominal exceedance rate.
 
-### 8.1 Unconditional coverage
+### 8.1 Exact uncertainty interval for the exceedance rate
+
+For each model-confidence pair, let
+
+```math
+X
+=
+\sum_{t=1}^{T}I_t
+=
+x,
+\qquad
+\widehat p
+=
+\frac{x}{T},
+```
+
+where $T$ is the number of out-of-sample forecasts, $x$ is the observed
+number of VaR exceedances, and $\widehat p$ is the observed exceedance
+rate.
+
+Under the binomial reference model,
+
+```math
+X\sim\operatorname{Binomial}(T,\pi),
+```
+
+where $\pi$ is the unknown true exceedance probability. Each observed
+exceedance rate will be accompanied by a two-sided 95% exact
+Clopper-Pearson confidence interval for $\pi$.
+
+Let $c=0.95$ be the interval confidence level and let
+
+```math
+\gamma=1-c.
+```
+
+Using $B_q^{-1}(a,b)$ to denote the $q$-quantile of a Beta distribution
+with shape parameters $a$ and $b$, the lower bound is
+
+```math
+p_{\mathrm{lower}}
+=
+\begin{cases}
+0,
+& x=0,\\[4pt]
+B_{\gamma/2}^{-1}
+\left(x,T-x+1\right),
+& x>0,
+\end{cases}
+```
+
+and the upper bound is
+
+```math
+p_{\mathrm{upper}}
+=
+\begin{cases}
+1,
+& x=T,\\[4pt]
+B_{1-\gamma/2}^{-1}
+\left(x+1,T-x\right),
+& x<T.
+\end{cases}
+```
+
+The VaR confidence level and the interval confidence level have different
+meanings. For example, a 99% VaR implies a nominal exceedance probability
+of 1%, while the 95% interval describes uncertainty around the estimated
+exceedance probability.
+
+The Clopper-Pearson interval is obtained by inverting equal-tailed exact
+binomial tests. Because binomial outcomes are discrete, its true coverage
+is generally at least the requested confidence level and may be
+conservative.
+
+The interval assumes a binomial sequence with a constant exceedance
+probability and independent indicators. Since exceedance clustering can
+violate the independence assumption, these bounds are treated as a
+nominal uncertainty reference and are reported alongside the
+Christoffersen independence test. They do not replace the predeclared
+coverage tests or their multiplicity-adjusted conclusions.
+
+### 8.2 Unconditional coverage
 
 The Kupiec likelihood-ratio test will evaluate
 
@@ -502,7 +584,7 @@ underestimation of risk.
 The Kupiec test evaluates only the full-sample exceedance frequency. It does
 not establish that exceedances are independent through time.
 
-### 8.2 Independence and conditional coverage
+### 8.3 Independence and conditional coverage
 
 The Christoffersen independence test examines whether a VaR exceedance is
 more likely after another exceedance. For consecutive indicators, define the
@@ -593,7 +675,7 @@ Rejecting conditional coverage means that the model fails at least one of the
 two requirements. The component statistics will always be reported so a
 frequency failure can be distinguished from exceedance clustering.
 
-### 8.3 Statistical reporting and multiplicity
+### 8.4 Statistical reporting and multiplicity
 
 Raw statistics and p-values will always be retained. Christoffersen
 conditional coverage will be the primary overall VaR adequacy test for each

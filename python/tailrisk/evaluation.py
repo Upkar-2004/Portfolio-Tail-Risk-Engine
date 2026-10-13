@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from math import erfc, exp, isfinite, log, sqrt
 from numbers import Integral, Real
+from scipy.stats import binomtest
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,23 @@ class KupiecTestResult:
     p_value: float
     significance_level: float
     reject_null: bool
+
+
+
+
+@dataclass(frozen=True)
+class ExactBinomialIntervalResult:
+    """Exact confidence interval for a binomial proportion."""
+
+    exceedance_count: int
+    observation_count: int
+    observed_exceedance_rate: float
+    interval_confidence_level: float
+    lower_bound: float
+    upper_bound: float
+
+
+
 
 
 
@@ -199,8 +217,89 @@ def summarize_gaussian_monte_carlo_errors(
     )
 
 
+
+
+def calculate_exact_binomial_interval(
+    exceedance_count: int,
+    observation_count: int,
+    interval_confidence_level: float = 0.95,
+) -> ExactBinomialIntervalResult:
+    """Calculate an exact interval for an exceedance rate.
+
+    The interval uses the two-sided Clopper-Pearson method for a
+    binomial proportion.
+    """
+
+    if (
+        isinstance(observation_count, bool)
+        or not isinstance(observation_count, Integral)
+        or observation_count <= 0
+    ):
+        raise ValueError(
+            "Observation count must be a positive integer."
+        )
+
+    if (
+        isinstance(exceedance_count, bool)
+        or not isinstance(exceedance_count, Integral)
+        or exceedance_count < 0
+        or exceedance_count > observation_count
+    ):
+        raise ValueError(
+            "Exceedance count must be an integer between "
+            "zero and the observation count."
+        )
+
+    if (
+        isinstance(interval_confidence_level, bool)
+        or not isinstance(
+            interval_confidence_level,
+            Real,
+        )
+        or not isfinite(interval_confidence_level)
+        or not 0.0 < interval_confidence_level < 1.0
+    ):
+        raise ValueError(
+            "Interval confidence level must be a finite "
+            "real number strictly between 0 and 1."
+        )
+
+    observation_count = int(observation_count)
+    exceedance_count = int(exceedance_count)
+    interval_confidence_level = float(
+        interval_confidence_level
+    )
+
+    binomial_result = binomtest(
+        k=exceedance_count,
+        n=observation_count,
+    )
+    interval = binomial_result.proportion_ci(
+        confidence_level=interval_confidence_level,
+        method="exact",
+    )
+
+    return ExactBinomialIntervalResult(
+        exceedance_count=exceedance_count,
+        observation_count=observation_count,
+        observed_exceedance_rate=(
+            exceedance_count / observation_count
+        ),
+        interval_confidence_level=(
+            interval_confidence_level
+        ),
+        lower_bound=float(interval.low),
+        upper_bound=float(interval.high),
+    )
+
+
+
+
+
+
 def summarize_var_exceedances(
     forecasts: pd.DataFrame,
+    interval_confidence_level: float = 0.95,
 ) -> pd.DataFrame:
     """Summarize observed and expected VaR exceedances.
 
@@ -351,6 +450,13 @@ def summarize_var_exceedances(
         expected_count = (
             observation_count * expected_rate
         )
+        interval = calculate_exact_binomial_interval(
+            exceedance_count=exceedance_count,
+            observation_count=observation_count,
+            interval_confidence_level=(
+                interval_confidence_level
+            ),
+        )
 
         records.append(
             {
@@ -370,6 +476,15 @@ def summarize_var_exceedances(
                 ),
                 "exceedance_count_difference": (
                     exceedance_count - expected_count
+                ),
+                "interval_confidence_level": (
+                    interval.interval_confidence_level
+                ),
+                "exceedance_rate_ci_lower": (
+                    interval.lower_bound
+                ),
+                "exceedance_rate_ci_upper": (
+                    interval.upper_bound
                 ),
             }
         )
@@ -497,11 +612,15 @@ def calculate_kupiec_unconditional_coverage(
 def evaluate_var_unconditional_coverage(
     forecasts: pd.DataFrame,
     significance_level: float = 0.05,
+    interval_confidence_level: float = 0.95,
 ) -> pd.DataFrame:
     """Summarize exceedances and run Kupiec tests by VaR level."""
 
     summary = summarize_var_exceedances(
         forecasts=forecasts,
+        interval_confidence_level=(
+            interval_confidence_level
+        ),
     )
     test_records: list[dict[str, float | bool]] = []
 
@@ -942,6 +1061,7 @@ def calculate_christoffersen_conditional_coverage(
 def evaluate_var_coverage(
     forecasts: pd.DataFrame,
     significance_level: float = 0.05,
+    interval_confidence_level: float = 0.95,
 ) -> pd.DataFrame:
     """Evaluate VaR coverage and independence by confidence level.
 
@@ -952,6 +1072,9 @@ def evaluate_var_coverage(
 
     summary = summarize_var_exceedances(
         forecasts=forecasts,
+        interval_confidence_level=(
+            interval_confidence_level
+        ),
     )
     test_records: list[
         dict[str, float | int | bool | None]
@@ -1043,6 +1166,7 @@ def evaluate_var_coverage(
 def evaluate_models_var_coverage(
     forecasts_by_model: dict[str, pd.DataFrame],
     significance_level: float = 0.05,
+    interval_confidence_level: float = 0.95,
 ) -> pd.DataFrame:
     """Evaluate aligned VaR forecasts across multiple models.
 
@@ -1093,6 +1217,9 @@ def evaluate_models_var_coverage(
         coverage_table = evaluate_var_coverage(
             forecasts=forecasts,
             significance_level=significance_level,
+            interval_confidence_level=(
+                interval_confidence_level
+            ),
         )
 
         if reference_index is None:

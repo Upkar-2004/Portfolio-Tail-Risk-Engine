@@ -8,6 +8,7 @@ from tailrisk.evaluation import (
     calculate_christoffersen_conditional_coverage,
     calculate_christoffersen_independence,
     calculate_kupiec_unconditional_coverage,
+    calculate_exact_binomial_interval,
     count_var_exceedance_transitions,
     evaluate_models_var_coverage,
     evaluate_var_coverage,
@@ -221,6 +222,19 @@ def test_var_exceedance_summary_matches_manual_example() -> None:
     assert summary_95[
         "exceedance_count_difference"
     ] == pytest.approx(1.75)
+    assert summary_95[
+        "interval_confidence_level"
+    ] == pytest.approx(0.95)
+    assert summary_95[
+        "exceedance_rate_ci_lower"
+    ] == pytest.approx(
+        0.052744950526316926
+    )
+    assert summary_95[
+        "exceedance_rate_ci_upper"
+    ] == pytest.approx(
+        0.853367200365327
+    )
 
     summary_99 = result.loc[0.99]
 
@@ -238,6 +252,17 @@ def test_var_exceedance_summary_matches_manual_example() -> None:
     assert summary_99[
         "exceedance_count_difference"
     ] == pytest.approx(-0.05)
+    assert summary_99[
+        "interval_confidence_level"
+    ] == pytest.approx(0.95)
+    assert summary_99[
+        "exceedance_rate_ci_lower"
+    ] == pytest.approx(0.0)
+    assert summary_99[
+        "exceedance_rate_ci_upper"
+    ] == pytest.approx(
+        0.5218237501049814
+    )
 
 
 def test_var_exceedance_requires_strict_loss_threshold() -> None:
@@ -277,6 +302,141 @@ def test_var_exceedance_summary_rejects_incorrect_indicator() -> None:
         summarize_var_exceedances(
             forecasts=forecasts,
         )
+
+
+
+def test_exact_binomial_interval_matches_known_example(
+) -> None:
+    """Exact bounds match a published Clopper-Pearson example."""
+
+    result = calculate_exact_binomial_interval(
+        exceedance_count=7,
+        observation_count=50,
+        interval_confidence_level=0.95,
+    )
+
+    assert result.exceedance_count == 7
+    assert result.observation_count == 50
+    assert result.observed_exceedance_rate == pytest.approx(
+        0.14
+    )
+    assert result.interval_confidence_level == pytest.approx(
+        0.95
+    )
+    assert result.lower_bound == pytest.approx(
+        0.05819170033997342
+    )
+    assert result.upper_bound == pytest.approx(
+        0.26739600249700846
+    )
+
+
+@pytest.mark.parametrize(
+    (
+        "exceedance_count",
+        "expected_lower",
+        "expected_upper",
+    ),
+    [
+        (
+            0,
+            0.0,
+            0.30849710781876083,
+        ),
+        (
+            10,
+            0.6915028921812392,
+            1.0,
+        ),
+    ],
+)
+def test_exact_binomial_interval_handles_boundary_counts(
+    exceedance_count: int,
+    expected_lower: float,
+    expected_upper: float,
+) -> None:
+    """Zero and all-exceedance samples have valid exact bounds."""
+
+    result = calculate_exact_binomial_interval(
+        exceedance_count=exceedance_count,
+        observation_count=10,
+    )
+
+    assert result.lower_bound == pytest.approx(
+        expected_lower
+    )
+    assert result.upper_bound == pytest.approx(
+        expected_upper
+    )
+    assert (
+        result.lower_bound
+        <= result.observed_exceedance_rate
+        <= result.upper_bound
+    )
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        (
+            {"observation_count": 0},
+            "Observation count",
+        ),
+        (
+            {"observation_count": True},
+            "Observation count",
+        ),
+        (
+            {"exceedance_count": -1},
+            "Exceedance count",
+        ),
+        (
+            {"exceedance_count": 101},
+            "Exceedance count",
+        ),
+        (
+            {"interval_confidence_level": 1.0},
+            "Interval confidence level",
+        ),
+        (
+            {"interval_confidence_level": True},
+            "Interval confidence level",
+        ),
+        (
+            {
+                "interval_confidence_level": (
+                    float("nan")
+                )
+            },
+            "Interval confidence level",
+        ),
+    ],
+)
+
+
+
+def test_exact_binomial_interval_rejects_invalid_inputs(
+    arguments: dict[str, float | int | bool],
+    message: str,
+) -> None:
+    """Exact interval inputs must satisfy their valid domains."""
+
+    valid_arguments: dict[str, float | int | bool] = {
+        "exceedance_count": 5,
+        "observation_count": 100,
+        "interval_confidence_level": 0.95,
+    }
+    valid_arguments.update(arguments)
+
+    with pytest.raises(
+        ValueError,
+        match=message,
+    ):
+        calculate_exact_binomial_interval(
+            **valid_arguments,
+        )
+
+
 
 
 def test_kupiec_test_matches_manual_rejection_example() -> None:
@@ -1140,6 +1300,46 @@ def test_model_coverage_evaluation_combines_model_tables(
             "reject_null_holm"
         ].to_numpy()
     ).all()
+
+
+def test_model_coverage_propagates_interval_confidence_level(
+) -> None:
+    """Model coverage uses the requested interval confidence level."""
+
+    forecasts = _create_var_exceedance_forecasts()
+
+    result = evaluate_models_var_coverage(
+        forecasts_by_model={
+            "rolling_gaussian": forecasts,
+        },
+        significance_level=0.05,
+        interval_confidence_level=0.90,
+    )
+
+    assert (
+        result["interval_confidence_level"]
+        == 0.90
+    ).all()
+
+    expected = calculate_exact_binomial_interval(
+        exceedance_count=2,
+        observation_count=5,
+        interval_confidence_level=0.90,
+    )
+
+    result_95 = result.loc[
+        (
+            "rolling_gaussian",
+            0.95,
+        )
+    ]
+
+    assert result_95[
+        "exceedance_rate_ci_lower"
+    ] == pytest.approx(expected.lower_bound)
+    assert result_95[
+        "exceedance_rate_ci_upper"
+    ] == pytest.approx(expected.upper_bound)
 
 
 def test_model_coverage_evaluation_rejects_misaligned_index(

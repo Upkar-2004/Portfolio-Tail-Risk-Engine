@@ -44,6 +44,9 @@ _DISPLAY_COLUMNS = [
     "exceedance_count",
     "expected_exceedance_count",
     "observed_exceedance_rate",
+    "interval_confidence_level",
+    "exceedance_rate_ci_lower",
+    "exceedance_rate_ci_upper",
     "transition_n00",
     "transition_n01",
     "transition_n10",
@@ -96,6 +99,15 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.05,
         help="Statistical significance level. Defaults to 0.05.",
+    )
+    parser.add_argument(
+        "--interval-confidence-level",
+        type=float,
+        default=0.95,
+        help=(
+            "Confidence level for exact exceedance-rate "
+            "intervals. Defaults to 0.95."
+        ),
     )
     parser.add_argument(
         "--output-root",
@@ -214,6 +226,47 @@ def save_var_coverage_report(
             "Snapshot ID must not be empty."
         )
 
+    interval_column = "interval_confidence_level"
+
+    if interval_column not in coverage.columns:
+        raise ValueError(
+            "Coverage results must contain an interval "
+            "confidence level."
+        )
+
+    try:
+        interval_levels = coverage[
+            interval_column
+        ].astype(float)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "Interval confidence levels must be finite "
+            "numbers strictly between 0 and 1."
+        ) from error
+
+    if (
+        interval_levels.isna().any()
+        or not interval_levels.map(
+            lambda value: 0.0 < value < 1.0
+        ).all()
+    ):
+        raise ValueError(
+            "Interval confidence levels must be finite "
+            "numbers strictly between 0 and 1."
+        )
+
+    unique_interval_levels = interval_levels.unique()
+
+    if len(unique_interval_levels) != 1:
+        raise ValueError(
+            "Coverage results must use one interval "
+            "confidence level."
+        )
+
+    interval_confidence_level = float(
+        unique_interval_levels[0]
+    )
+
     output_root_path = Path(output_root)
     output_root_path.mkdir(
         parents=True,
@@ -274,6 +327,12 @@ def save_var_coverage_report(
             "var_exceedance_rule": (
                 "realized_loss > value_at_risk"
             ),
+            "exceedance_rate_interval": {
+                "method": "clopper_pearson_exact",
+                "confidence_level": (
+                    interval_confidence_level
+                ),
+            },
             "tests": [
                 "kupiec_unconditional_coverage",
                 "christoffersen_independence",
@@ -386,6 +445,9 @@ def main() -> None:
     coverage = evaluate_models_var_coverage(
         forecasts_by_model=forecasts_by_model,
         significance_level=args.significance_level,
+        interval_confidence_level=(
+            args.interval_confidence_level
+        ),
     )
 
     snapshot_id = args.snapshot_id
