@@ -502,32 +502,34 @@ Let $c=0.95$ be the interval confidence level and let
 ```
 
 Using $B_q^{-1}(a,b)$ to denote the $q$-quantile of a Beta distribution
-with shape parameters $a$ and $b$, the lower bound is
+with shape parameters $a$ and $b$, the lower bound for $x>0$ is
 
 ```math
 p_{\mathrm{lower}}
 =
-\begin{cases}
-0,
-& x=0,\\[4pt]
 B_{\gamma/2}^{-1}
-\left(x,T-x+1\right),
-& x>0,
-\end{cases}
+\left(x,T-x+1\right).
 ```
 
-and the upper bound is
+When $x=0$, the lower bound is defined as
+
+```math
+p_{\mathrm{lower}}=0.
+```
+
+For $x<T$, the upper bound is
 
 ```math
 p_{\mathrm{upper}}
 =
-\begin{cases}
-1,
-& x=T,\\[4pt]
 B_{1-\gamma/2}^{-1}
-\left(x+1,T-x\right),
-& x<T.
-\end{cases}
+\left(x+1,T-x\right).
+```
+
+When $x=T$, the upper bound is defined as
+
+```math
+p_{\mathrm{upper}}=1.
 ```
 
 The VaR confidence level and the interval confidence level have different
@@ -549,11 +551,15 @@ coverage tests or their multiplicity-adjusted conclusions.
 
 ### 8.2 Unconditional coverage
 
-The Kupiec likelihood-ratio test will evaluate
+The Kupiec likelihood-ratio test will evaluate the null hypothesis
 
 ```math
 H_0:\Pr(I_t=1)=p
-\qquad\text{against}\qquad
+```
+
+against the two-sided alternative
+
+```math
 H_1:\Pr(I_t=1)\ne p.
 ```
 
@@ -651,9 +657,11 @@ The likelihood-ratio statistic is
 ```math
 LR_{\mathrm{ind}}
 =
--2\log\left(\frac{\mathcal{L}_0}{\mathcal{L}_1}\right)
-\ \overset{a}{\sim}\ \chi^2_1.
+-2\log\left(\frac{\mathcal{L}_0}{\mathcal{L}_1}\right).
 ```
+
+Under the independence null, this statistic is compared with an asymptotic
+chi-square distribution with one degree of freedom.
 
 Boundary cases with an unobserved preceding state are handled by assigning
 zero log-likelihood contribution to that state. This keeps all-zero and
@@ -667,9 +675,11 @@ and first-order independence:
 ```math
 LR_{\mathrm{cc}}
 =
-LR_{\mathrm{uc}}+LR_{\mathrm{ind}}
-\ \overset{a}{\sim}\ \chi^2_2.
+LR_{\mathrm{uc}}+LR_{\mathrm{ind}}.
 ```
+
+Under the joint conditional-coverage null, this statistic is compared with
+an asymptotic chi-square distribution with two degrees of freedom.
 
 Rejecting conditional coverage means that the model fails at least one of the
 two requirements. The component statistics will always be reported so a
@@ -697,6 +707,206 @@ Expected Shortfall evaluation will examine the severity of losses beyond the VaR
 Exact 95% binomial intervals will accompany exceedance-rate figures to show
 sampling uncertainty. Formal conclusions will continue to follow the
 predeclared hypothesis tests rather than visual inspection alone.
+
+### 8.5 Expected Shortfall and tail-loss severity
+
+Expected Shortfall evaluates the magnitude of losses in the VaR tail rather
+than the frequency of VaR exceedances. For model confidence level $\alpha$,
+write the forecast VaR and Expected Shortfall as
+
+```math
+q_{t,\alpha}=\operatorname{VaR}_{t,\alpha},
+\qquad
+e_{t,\alpha}=\operatorname{ES}_{t,\alpha}.
+```
+
+For an upper-tail loss distribution, an internally consistent forecast pair
+must satisfy
+
+```math
+e_{t,\alpha}\ge q_{t,\alpha}.
+```
+
+The implementation will validate this ordering using an absolute tolerance of
+$10^{-12}$ in portfolio-loss units. This tolerance accommodates insignificant
+floating-point differences without accepting a material ES-below-VaR
+violation. VaR exceedances continue to use the strict rule
+
+```math
+I_{t,\alpha}
+=
+\mathbf{1}\left\{L_t>q_{t,\alpha}\right\}.
+```
+
+Define the set and number of VaR-exceedance sessions as
+
+```math
+\mathcal{B}_{\alpha}
+=
+\left\{t:I_{t,\alpha}=1\right\},
+\qquad
+x_{\alpha}
+=
+\sum_{t=1}^{T}I_{t,\alpha}.
+```
+
+When $x_{\alpha}>0$, the mean realized loss on exceedance sessions is
+
+```math
+\overline{L}_{\mathcal{B},\alpha}
+=
+\frac{1}{x_{\alpha}}
+\sum_{t\in\mathcal{B}_{\alpha}}L_t.
+```
+
+The corresponding mean VaR and mean Expected Shortfall forecasts on those
+same sessions are
+
+```math
+\overline{q}_{\mathcal{B},\alpha}
+=
+\frac{1}{x_{\alpha}}
+\sum_{t\in\mathcal{B}_{\alpha}}q_{t,\alpha},
+```
+
+and
+
+```math
+\overline{e}_{\mathcal{B},\alpha}
+=
+\frac{1}{x_{\alpha}}
+\sum_{t\in\mathcal{B}_{\alpha}}e_{t,\alpha}.
+```
+
+The VaR excess on an exceedance session is
+
+```math
+D^{\mathrm{VaR}}_{t,\alpha}
+=
+L_t-q_{t,\alpha}.
+```
+
+It is strictly positive by construction. Its mean is
+
+```math
+\overline{D}^{\mathrm{VaR}}_{\alpha}
+=
+\frac{1}{x_{\alpha}}
+\sum_{t\in\mathcal{B}_{\alpha}}
+D^{\mathrm{VaR}}_{t,\alpha}.
+```
+
+The median VaR excess is
+
+```math
+\widetilde{D}^{\mathrm{VaR}}_{\alpha}
+=
+\operatorname{median}
+\left\{
+D^{\mathrm{VaR}}_{t,\alpha}:
+t\in\mathcal{B}_{\alpha}
+\right\},
+```
+
+and the maximum VaR excess is
+
+```math
+D^{\mathrm{VaR,max}}_{\alpha}
+=
+\max_{t\in\mathcal{B}_{\alpha}}
+D^{\mathrm{VaR}}_{t,\alpha}.
+```
+
+The mean describes average breach severity, the median gives a value less
+dominated by a few extreme sessions, and the maximum records the worst
+observed miss beyond the VaR threshold.
+
+The Expected Shortfall gap on a VaR-exceedance session is
+
+```math
+D^{\mathrm{ES}}_{t,\alpha}
+=
+L_t-e_{t,\alpha},
+```
+
+with conditional sample mean
+
+```math
+\overline{D}^{\mathrm{ES}}_{\alpha}
+=
+\frac{1}{x_{\alpha}}
+\sum_{t\in\mathcal{B}_{\alpha}}
+D^{\mathrm{ES}}_{t,\alpha}.
+```
+
+A positive mean Expected Shortfall gap means that realized losses on the VaR
+exceedance sessions were, on average, larger than the corresponding ES
+forecasts. A negative value means that the ES forecasts were larger on
+average. A value near zero indicates close average tail severity, but it does
+not by itself establish correct conditional calibration.
+
+If $x_{\alpha}=0$, all statistics conditional on VaR exceedance are undefined
+and will be stored as missing values rather than zero. A reported zero would
+incorrectly imply that tail severity had been observed and measured.
+
+These summaries are descriptive. Each model's breach set is determined by
+its own VaR forecasts, so different models may be summarized over different
+dates. Conditional tail averages therefore must not be treated as formal
+pairwise model rankings without an appropriate comparative test.
+
+For a diagnostic that uses every forecast session, define the joint VaR-ES
+tail contribution
+
+```math
+C_{t,\alpha}
+=
+q_{t,\alpha}
++
+\frac{I_{t,\alpha}}{1-\alpha}
+\left(L_t-q_{t,\alpha}\right).
+```
+
+The corresponding Expected Shortfall identification residual is
+
+```math
+Z_{t,\alpha}
+=
+C_{t,\alpha}-e_{t,\alpha}.
+```
+
+When the conditional VaR and Expected Shortfall forecasts are jointly
+correct and the loss distribution is continuous at the VaR threshold,
+
+```math
+\mathbb{E}\left[
+Z_{t,\alpha}
+\mid
+\mathcal{F}_{t-1}
+\right]
+=0.
+```
+
+The sample mean identification residual is
+
+```math
+\overline{Z}_{\alpha}
+=
+\frac{1}{T}
+\sum_{t=1}^{T}Z_{t,\alpha}.
+```
+
+A positive value indicates that the joint forecasts understate the realized
+tail contribution on average, while a negative value indicates overstatement.
+Because this residual depends on both VaR and Expected Shortfall, a nonzero
+mean cannot automatically be attributed to the ES component alone when VaR
+is miscalibrated.
+
+Serial dependence and volatility clustering can invalidate independent-data
+standard errors for these residuals. Formal uncertainty will therefore use a
+predeclared dependence-robust procedure, such as a HAC estimator or
+moving-block bootstrap, before statistical claims are made. Jointly
+consistent VaR-ES scores will be reserved for formal pairwise model
+comparison rather than mixed into the descriptive severity summary.
 
 ## 9. Decisions still to be finalized
 

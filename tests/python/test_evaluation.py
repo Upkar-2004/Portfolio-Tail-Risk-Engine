@@ -12,7 +12,9 @@ from tailrisk.evaluation import (
     count_var_exceedance_transitions,
     evaluate_models_var_coverage,
     evaluate_var_coverage,
+    evaluate_models_es_tail_severity,
     evaluate_var_unconditional_coverage,
+    summarize_es_tail_severity,
     summarize_gaussian_monte_carlo_errors,
     summarize_var_exceedances,
 )
@@ -195,6 +197,405 @@ def _create_var_exceedance_forecasts() -> pd.DataFrame:
         },
         index=index,
     )
+
+
+
+
+
+def _create_es_tail_severity_forecasts() -> pd.DataFrame:
+    """Create controlled ES forecasts with known tail severity."""
+
+    dates = pd.date_range(
+        "2025-01-02",
+        periods=5,
+        freq="B",
+    )
+    confidence_levels = [
+        0.95,
+        0.99,
+    ]
+    index = pd.MultiIndex.from_product(
+        [
+            dates,
+            confidence_levels,
+        ],
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+
+    realized_losses = [
+        3.0,
+        3.0,
+        7.0,
+        7.0,
+        9.0,
+        9.0,
+        2.0,
+        2.0,
+        12.0,
+        12.0,
+    ]
+    value_at_risk = [
+        8.0,
+        14.0,
+        8.0,
+        14.0,
+        8.0,
+        14.0,
+        8.0,
+        14.0,
+        10.0,
+        14.0,
+    ]
+    expected_shortfall = [
+        10.0,
+        17.0,
+        10.0,
+        17.0,
+        10.0,
+        17.0,
+        10.0,
+        17.0,
+        13.0,
+        17.0,
+    ]
+
+    return pd.DataFrame(
+        {
+            "realized_loss": realized_losses,
+            "value_at_risk": value_at_risk,
+            "expected_shortfall": (
+                expected_shortfall
+            ),
+            "var_exceedance": [
+                loss > var
+                for loss, var in zip(
+                    realized_losses,
+                    value_at_risk,
+                    strict=True,
+                )
+            ],
+        },
+        index=index,
+    )
+
+
+
+
+def test_es_tail_severity_matches_manual_example() -> None:
+    """ES tail severity matches manually calculated values."""
+
+    forecasts = _create_es_tail_severity_forecasts()
+
+    result = summarize_es_tail_severity(
+        forecasts=forecasts,
+    )
+
+    summary_95 = result.loc[0.95]
+
+    assert summary_95["observation_count"] == 5
+    assert summary_95["var_exceedance_count"] == 2
+
+    assert summary_95[
+        "mean_exceedance_loss"
+    ] == pytest.approx(10.5)
+
+    assert summary_95[
+        "mean_var_on_exceedance_days"
+    ] == pytest.approx(9.0)
+
+    assert summary_95[
+        "mean_es_on_exceedance_days"
+    ] == pytest.approx(11.5)
+
+    assert summary_95[
+        "mean_var_excess"
+    ] == pytest.approx(1.5)
+
+    assert summary_95[
+        "median_var_excess"
+    ] == pytest.approx(1.5)
+
+    assert summary_95[
+        "maximum_var_excess"
+    ] == pytest.approx(2.0)
+
+    assert summary_95[
+        "mean_es_gap"
+    ] == pytest.approx(-1.0)
+
+
+def test_es_tail_severity_uses_missing_values_without_breaches(
+) -> None:
+    """Tail statistics are undefined when no VaR breach occurs."""
+
+    forecasts = _create_es_tail_severity_forecasts()
+
+    result = summarize_es_tail_severity(
+        forecasts=forecasts,
+    )
+
+    summary_99 = result.loc[0.99]
+
+    assert summary_99["observation_count"] == 5
+    assert summary_99["var_exceedance_count"] == 0
+
+    undefined_columns = [
+        "mean_exceedance_loss",
+        "mean_var_on_exceedance_days",
+        "mean_es_on_exceedance_days",
+        "mean_var_excess",
+        "median_var_excess",
+        "maximum_var_excess",
+        "mean_es_gap",
+    ]
+
+    assert summary_99[
+        undefined_columns
+    ].isna().all()
+
+
+def test_es_tail_severity_rejects_missing_es_column(
+) -> None:
+    """Expected Shortfall forecasts are required."""
+
+    forecasts = (
+        _create_es_tail_severity_forecasts()
+        .drop(columns="expected_shortfall")
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="expected_shortfall",
+    ):
+        summarize_es_tail_severity(
+            forecasts=forecasts,
+        )
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [
+        True,
+        float("nan"),
+        float("inf"),
+        "not-a-number",
+    ],
+)
+def test_es_tail_severity_rejects_invalid_es_values(
+    bad_value: object,
+) -> None:
+    """Expected Shortfall forecasts must be finite numbers."""
+
+    forecasts = _create_es_tail_severity_forecasts()
+    forecasts["expected_shortfall"] = forecasts[
+        "expected_shortfall"
+    ].astype(object)
+    forecasts.loc[
+        (
+            pd.Timestamp("2025-01-02"),
+            0.95,
+        ),
+        "expected_shortfall",
+    ] = bad_value
+
+    with pytest.raises(
+        ValueError,
+        match="finite numbers",
+    ):
+        summarize_es_tail_severity(
+            forecasts=forecasts,
+        )
+
+
+def test_es_tail_severity_rejects_es_below_var(
+) -> None:
+    """Expected Shortfall cannot be materially smaller than VaR."""
+
+    forecasts = _create_es_tail_severity_forecasts()
+    forecasts.loc[
+        (
+            pd.Timestamp("2025-01-02"),
+            0.95,
+        ),
+        "expected_shortfall",
+    ] = 7.99
+
+    with pytest.raises(
+        ValueError,
+        match="at least as large",
+    ):
+        summarize_es_tail_severity(
+            forecasts=forecasts,
+        )
+
+
+def test_es_tail_severity_allows_numerical_order_tolerance(
+) -> None:
+    """Tiny floating-point differences do not violate ES ordering."""
+
+    forecasts = _create_es_tail_severity_forecasts()
+    forecasts.loc[
+        (
+            pd.Timestamp("2025-01-02"),
+            0.95,
+        ),
+        "expected_shortfall",
+    ] = 8.0 - 0.5e-12
+
+    result = summarize_es_tail_severity(
+        forecasts=forecasts,
+    )
+
+    assert result.loc[
+        0.95,
+        "var_exceedance_count",
+    ] == 2
+
+
+
+
+
+def test_model_es_tail_severity_combines_aligned_models(
+) -> None:
+    """Aligned model summaries form one multi-indexed table."""
+
+    rolling_forecasts = (
+        _create_es_tail_severity_forecasts()
+    )
+    ewma_forecasts = rolling_forecasts.copy()
+
+    ewma_forecasts["value_at_risk"] += 1.0
+    ewma_forecasts["expected_shortfall"] += 1.0
+    ewma_forecasts["var_exceedance"] = (
+        ewma_forecasts["realized_loss"]
+        > ewma_forecasts["value_at_risk"]
+    )
+
+    result = evaluate_models_es_tail_severity(
+        forecasts_by_model={
+            "rolling_gaussian": rolling_forecasts,
+            "ewma_gaussian": ewma_forecasts,
+        }
+    )
+
+    assert result.index.names == [
+        "model",
+        "confidence_level",
+    ]
+    assert list(
+        result.index.get_level_values(
+            "model"
+        ).unique()
+    ) == [
+        "rolling_gaussian",
+        "ewma_gaussian",
+    ]
+    assert len(result) == 4
+
+    rolling_95 = result.loc[
+        (
+            "rolling_gaussian",
+            0.95,
+        )
+    ]
+    ewma_95 = result.loc[
+        (
+            "ewma_gaussian",
+            0.95,
+        )
+    ]
+
+    assert rolling_95[
+        "var_exceedance_count"
+    ] == 2
+    assert rolling_95[
+        "mean_var_excess"
+    ] == pytest.approx(1.5)
+
+    assert ewma_95[
+        "var_exceedance_count"
+    ] == 1
+    assert ewma_95[
+        "mean_exceedance_loss"
+    ] == pytest.approx(12.0)
+    assert ewma_95[
+        "mean_var_excess"
+    ] == pytest.approx(1.0)
+    assert ewma_95[
+        "mean_es_gap"
+    ] == pytest.approx(-2.0)
+
+
+def test_model_es_tail_severity_rejects_misaligned_index(
+) -> None:
+    """Compared models must use identical ordered forecast rows."""
+
+    rolling_forecasts = (
+        _create_es_tail_severity_forecasts()
+    )
+    ewma_forecasts = rolling_forecasts.iloc[::-1]
+
+    with pytest.raises(
+        ValueError,
+        match="same ordered forecast index",
+    ):
+        evaluate_models_es_tail_severity(
+            forecasts_by_model={
+                "rolling_gaussian": rolling_forecasts,
+                "ewma_gaussian": ewma_forecasts,
+            }
+        )
+
+
+def test_model_es_tail_severity_rejects_different_losses(
+) -> None:
+    """Compared models must use identical realized losses."""
+
+    rolling_forecasts = (
+        _create_es_tail_severity_forecasts()
+    )
+    ewma_forecasts = rolling_forecasts.copy()
+    ewma_forecasts.loc[
+        (
+            pd.Timestamp("2025-01-02"),
+            0.95,
+        ),
+        "realized_loss",
+    ] = 3.1
+
+    with pytest.raises(
+        ValueError,
+        match="identical realized losses",
+    ):
+        evaluate_models_es_tail_severity(
+            forecasts_by_model={
+                "rolling_gaussian": rolling_forecasts,
+                "ewma_gaussian": ewma_forecasts,
+            }
+        )
+
+
+def test_model_es_tail_severity_rejects_empty_mapping(
+) -> None:
+    """At least one model forecast table is required."""
+
+    with pytest.raises(
+        ValueError,
+        match="At least one model",
+    ):
+        evaluate_models_es_tail_severity(
+            forecasts_by_model={}
+        )
+
+
+
+
+
+
+
 
 
 def test_var_exceedance_summary_matches_manual_example() -> None:

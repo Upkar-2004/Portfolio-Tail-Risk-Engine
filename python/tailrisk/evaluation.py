@@ -9,6 +9,10 @@ import numpy as np
 import pandas as pd
 
 
+
+_ES_VAR_ORDER_TOLERANCE = 1e-12
+
+
 @dataclass(frozen=True)
 class KupiecTestResult:
     """Result of a Kupiec unconditional-coverage test."""
@@ -493,6 +497,286 @@ def summarize_var_exceedances(
         pd.DataFrame.from_records(records)
         .set_index("confidence_level")
     )
+
+
+
+
+def summarize_es_tail_severity(
+    forecasts: pd.DataFrame,
+) -> pd.DataFrame:
+    """Summarize loss severity on VaR-exceedance sessions.
+
+    The returned table contains one row per confidence level.
+    Statistics conditional on a VaR exceedance are missing when
+    no exceedance is observed.
+    """
+
+    if not isinstance(forecasts, pd.DataFrame):
+        raise TypeError(
+            "Forecasts must be a pandas DataFrame."
+        )
+
+    if forecasts.empty:
+        raise ValueError(
+            "Forecasts must not be empty."
+        )
+
+    if "expected_shortfall" not in forecasts.columns:
+        raise ValueError(
+            "Forecasts are missing required column: "
+            "expected_shortfall."
+        )
+
+    # Reuse the established VaR validation contract. This checks the
+    # index, confidence levels, loss and VaR values, boolean indicators,
+    # and agreement with the strict realized_loss > value_at_risk rule.
+    summarize_var_exceedances(
+        forecasts=forecasts,
+    )
+
+    expected_shortfall = forecasts[
+        "expected_shortfall"
+    ]
+
+    if any(
+        isinstance(value, (bool, np.bool_))
+        for value in expected_shortfall
+    ):
+        raise ValueError(
+            "Expected Shortfall forecasts must contain "
+            "finite numbers."
+        )
+
+    try:
+        expected_shortfall_values = (
+            expected_shortfall.to_numpy(dtype=float)
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "Expected Shortfall forecasts must contain "
+            "finite numbers."
+        ) from error
+
+    if not np.isfinite(
+        expected_shortfall_values
+    ).all():
+        raise ValueError(
+            "Expected Shortfall forecasts must contain "
+            "finite numbers."
+        )
+
+    value_at_risk_values = forecasts[
+        "value_at_risk"
+    ].to_numpy(dtype=float)
+
+    if (
+        expected_shortfall_values
+        < (
+            value_at_risk_values
+            - _ES_VAR_ORDER_TOLERANCE
+        )
+    ).any():
+        raise ValueError(
+            "Expected Shortfall forecasts must be at "
+            "least as large as VaR forecasts."
+        )
+
+    records: list[dict[str, float | int]] = []
+
+    for confidence_level, level_forecasts in (
+        forecasts.groupby(
+            level="confidence_level",
+            sort=False,
+        )
+    ):
+        observation_count = len(level_forecasts)
+        exceedance_forecasts = level_forecasts.loc[
+            level_forecasts["var_exceedance"]
+        ]
+        exceedance_count = len(
+            exceedance_forecasts
+        )
+
+        if exceedance_count == 0:
+            mean_exceedance_loss = float("nan")
+            mean_var_on_exceedance_days = float("nan")
+            mean_es_on_exceedance_days = float("nan")
+            mean_var_excess = float("nan")
+            median_var_excess = float("nan")
+            maximum_var_excess = float("nan")
+            mean_es_gap = float("nan")
+        else:
+            exceedance_losses = exceedance_forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+            exceedance_var = exceedance_forecasts[
+                "value_at_risk"
+            ].to_numpy(dtype=float)
+            exceedance_es = exceedance_forecasts[
+                "expected_shortfall"
+            ].to_numpy(dtype=float)
+
+            var_excess = (
+                exceedance_losses - exceedance_var
+            )
+            es_gap = (
+                exceedance_losses - exceedance_es
+            )
+
+            mean_exceedance_loss = float(
+                exceedance_losses.mean()
+            )
+            mean_var_on_exceedance_days = float(
+                exceedance_var.mean()
+            )
+            mean_es_on_exceedance_days = float(
+                exceedance_es.mean()
+            )
+            mean_var_excess = float(
+                var_excess.mean()
+            )
+            median_var_excess = float(
+                np.median(var_excess)
+            )
+            maximum_var_excess = float(
+                var_excess.max()
+            )
+            mean_es_gap = float(
+                es_gap.mean()
+            )
+
+        records.append(
+            {
+                "confidence_level": float(
+                    confidence_level
+                ),
+                "observation_count": (
+                    observation_count
+                ),
+                "var_exceedance_count": (
+                    exceedance_count
+                ),
+                "mean_exceedance_loss": (
+                    mean_exceedance_loss
+                ),
+                "mean_var_on_exceedance_days": (
+                    mean_var_on_exceedance_days
+                ),
+                "mean_es_on_exceedance_days": (
+                    mean_es_on_exceedance_days
+                ),
+                "mean_var_excess": (
+                    mean_var_excess
+                ),
+                "median_var_excess": (
+                    median_var_excess
+                ),
+                "maximum_var_excess": (
+                    maximum_var_excess
+                ),
+                "mean_es_gap": mean_es_gap,
+            }
+        )
+
+    return (
+        pd.DataFrame.from_records(records)
+        .set_index("confidence_level")
+    )
+
+
+
+
+
+def evaluate_models_es_tail_severity(
+    forecasts_by_model: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Summarize aligned ES tail severity across multiple models.
+
+    Each model contributes one row per confidence level. Models must
+    use identical ordered forecast indexes and realized portfolio losses.
+    """
+
+    if not isinstance(forecasts_by_model, dict):
+        raise TypeError(
+            "Forecasts by model must be a dictionary."
+        )
+
+    if not forecasts_by_model:
+        raise ValueError(
+            "At least one model forecast table is required."
+        )
+
+    severity_tables: dict[str, pd.DataFrame] = {}
+    reference_index: pd.Index | None = None
+    reference_losses: np.ndarray | None = None
+    reference_model: str | None = None
+
+    for model_name, forecasts in (
+        forecasts_by_model.items()
+    ):
+        if (
+            not isinstance(model_name, str)
+            or not model_name.strip()
+        ):
+            raise ValueError(
+                "Each model name must be a non-empty string."
+            )
+
+        if not isinstance(forecasts, pd.DataFrame):
+            raise TypeError(
+                "Each model's forecasts must be a pandas DataFrame."
+            )
+
+        if (
+            reference_index is not None
+            and not forecasts.index.equals(
+                reference_index
+            )
+        ):
+            raise ValueError(
+                "All models must use the same ordered "
+                "forecast index."
+            )
+
+        severity_table = summarize_es_tail_severity(
+            forecasts=forecasts,
+        )
+
+        if reference_index is None:
+            reference_index = forecasts.index
+            reference_losses = forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+            reference_model = model_name
+        else:
+            model_losses = forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+
+            if not np.allclose(
+                model_losses,
+                reference_losses,
+                rtol=1e-12,
+                atol=1e-15,
+            ):
+                raise ValueError(
+                    "All models must use identical realized "
+                    f"losses; {model_name} differs from "
+                    f"{reference_model}."
+                )
+
+        severity_tables[model_name] = (
+            severity_table
+        )
+
+    return pd.concat(
+        severity_tables,
+        names=["model"],
+    )
+
+
+
+
 
 
 def calculate_kupiec_unconditional_coverage(

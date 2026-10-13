@@ -1,13 +1,13 @@
 # Project Checkpoints
 
-Last updated: 2026-10-12
+Last updated: 2026-10-13
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
 **Current phase:** Statistical evaluation and uncertainty quantification
 
-**Next checkpoint:** Review and implement Expected Shortfall diagnostics and
-tail-loss-severity summaries.
+**Next checkpoint:** Review and implement the joint VaR-Expected-Shortfall
+identification residual and its dependence-robust uncertainty procedure.
 
 ## 1. Project definition and research scope
 
@@ -176,7 +176,15 @@ tail-loss-severity summaries.
   `0bdbe92b544613ebeabc47f76defe13ce15bdd48c9aca876facc184d205defdb`.
 - [x] Implement exact 95% binomial confidence intervals for observed
   exceedance rates.
-- [ ] Implement Expected Shortfall diagnostics and tail-loss-severity summaries.
+- [x] Implement and test descriptive Expected Shortfall tail-severity
+  summaries.
+- [x] Add and test a reproducible command that verifies the three source
+  backtests and saves the combined nine-row ES tail-severity report.
+- [x] Generate the baseline ES tail-severity report as snapshot
+  `20261013T185315140525Z_baseline_11_asset_es_tail_severity`; its CSV SHA-256
+  is `206e690a10f37275e5bcd6d68b70cfdbd3b8c2eba5b9d0b9b8587b2612ab5214`.
+- [ ] Implement the joint VaR-Expected-Shortfall identification residual and
+  its predeclared dependence-robust uncertainty procedure.
 - [x] Test the completed VaR coverage statistics against controlled manual
   examples, boundary cases, and integration checks.
 - [ ] Compare all models without assuming that greater complexity performs better.

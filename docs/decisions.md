@@ -143,3 +143,50 @@ p-values.
   multiplicity adjustment, so both values will be reported.
 - Descriptive subperiod, severity, and traffic-light results will not be
   presented as formal hypothesis tests without separately documented rules.
+
+## 2026-10-13: Fixed the initial Expected Shortfall severity protocol
+
+**Status:** Accepted
+
+### Context
+
+Expected Shortfall describes average loss severity beyond VaR rather than a
+second quantile threshold. It therefore must not be evaluated by inventing an
+"ES exceedance rate" with a nominal probability. The initial ES layer should
+remain interpretable while preserving a clear boundary between descriptive
+tail summaries and later formal joint VaR-ES inference.
+
+### Decision
+
+- Define the tail sample for each model-confidence pair using the existing
+  strict VaR exceedance rule
+  $I_{t,\alpha}=\mathbf{1}\{L_t>\operatorname{VaR}_{t,\alpha}\}$.
+- Require every Expected Shortfall forecast to be finite and at least as large
+  as its corresponding VaR forecast. Allow an absolute numerical tolerance of
+  $10^{-12}$ in portfolio-loss units for insignificant floating-point error.
+- Report the number of forecasts and VaR exceedances together with mean
+  realized exceedance loss, mean VaR and ES on exceedance dates, and the mean,
+  median, and maximum loss excess over VaR.
+- Define the ES gap on a VaR-exceedance date as realized loss minus forecast
+  ES and report its conditional sample mean.
+- Store conditional severity statistics as missing when no VaR exceedance is
+  observed. Zero would incorrectly imply that tail severity was observed and
+  measured as zero.
+- Treat these outputs as descriptive diagnostics. Each model defines its own
+  exceedance-date set, so conditional tail summaries are not formal pairwise
+  rankings.
+- Implement the all-session joint VaR-ES identification residual separately
+  from the descriptive severity summary. Dependence-robust uncertainty and
+  jointly consistent scoring rules will be specified before formal inference
+  or pairwise model comparison.
+
+### Consequences
+
+- Tail-severity tables will explain the magnitude of VaR failures without
+  misrepresenting ES as a threshold with a fixed exception probability.
+- The exceedance count will remain visible beside every conditional statistic
+  so estimates based on sparse 99% tails are not presented without context.
+- A positive mean ES gap will indicate that realized losses on breach dates
+  exceeded forecast ES on average; a negative value will indicate the reverse.
+- Descriptive ES results alone will not establish joint calibration or model
+  superiority.
