@@ -4,13 +4,17 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from tailrisk.models import calculate_gaussian_var_es
 from tailrisk.simulation import calculate_empirical_var_es
 from tailrisk.visualization import (
     create_basel_traffic_light_figure,
+    create_subperiod_exception_rate_figure,
+    prepare_subperiod_exception_rate_matrices,
     save_basel_traffic_light_figure,
     save_gaussian_tail_risk_figure,
+    save_subperiod_exception_rate_figure,
 )
 
 
@@ -74,6 +78,47 @@ def _create_basel_figure_tables(
     )
 
     return paths, summary
+
+
+def _create_subperiod_coverage_table() -> pd.DataFrame:
+    """Create a complete controlled subperiod coverage table."""
+
+    period_ids = [
+        *(f"calendar_{year}" for year in range(2012, 2026)),
+        "nber_recession_2020",
+    ]
+    models = [
+        "rolling_gaussian_monte_carlo",
+        "ewma_gaussian_monte_carlo",
+        "filtered_historical_simulation",
+    ]
+    confidence_levels = [0.95, 0.975, 0.99]
+    index = pd.MultiIndex.from_product(
+        [period_ids, models, confidence_levels],
+        names=[
+            "period_id",
+            "model",
+            "confidence_level",
+        ],
+    )
+    row_numbers = np.arange(len(index), dtype=float)
+    deviations = (row_numbers - 67.0) / 1_000.0
+    period_types = [
+        (
+            "nber_recession"
+            if period_id == "nber_recession_2020"
+            else "calendar_year"
+        )
+        for period_id in index.get_level_values("period_id")
+    ]
+
+    return pd.DataFrame(
+        {
+            "period_type": period_types,
+            "observed_minus_expected_rate": deviations,
+        },
+        index=index,
+    )
 
 
 def test_save_gaussian_tail_risk_figure_creates_png(
@@ -217,3 +262,125 @@ def test_save_basel_traffic_light_figure_creates_png_and_svg(
     assert "<svg" in svg_path.read_text(
         encoding="utf-8"
     )
+
+
+def test_prepare_subperiod_exception_rate_matrices_maps_values(
+) -> None:
+    """Coverage rows map to fixed model, year, and level positions."""
+
+    coverage = _create_subperiod_coverage_table()
+    original = coverage.copy(deep=True)
+    calendar, recession = (
+        prepare_subperiod_exception_rate_matrices(
+            coverage
+        )
+    )
+
+    assert list(calendar) == [0.95, 0.975, 0.99]
+    assert calendar[0.95].shape == (3, 14)
+    assert recession[0.99].shape == (3, 1)
+    assert calendar[0.975].loc[
+        "ewma_gaussian_monte_carlo",
+        "calendar_2018",
+    ] == coverage.loc[
+        (
+            "calendar_2018",
+            "ewma_gaussian_monte_carlo",
+            0.975,
+        ),
+        "observed_minus_expected_rate",
+    ]
+    assert recession[0.99].loc[
+        "filtered_historical_simulation",
+        "nber_recession_2020",
+    ] == coverage.loc[
+        (
+            "nber_recession_2020",
+            "filtered_historical_simulation",
+            0.99,
+        ),
+        "observed_minus_expected_rate",
+    ]
+    pd.testing.assert_frame_equal(
+        coverage,
+        original,
+    )
+
+
+def test_create_subperiod_exception_rate_figure_uses_six_panels(
+) -> None:
+    """Three confidence levels each receive calendar and NBER panels."""
+
+    coverage = _create_subperiod_coverage_table()
+    figure = create_subperiod_exception_rate_figure(
+        coverage
+    )
+
+    assert len(figure.axes) == 7
+    assert figure.axes[0].images[0].get_array().shape == (
+        3,
+        14,
+    )
+    assert figure.axes[1].images[0].get_array().shape == (
+        3,
+        1,
+    )
+    assert figure.axes[0].get_ylabel() == "95.0% VaR"
+    assert figure.axes[2].get_ylabel() == "97.5% VaR"
+    assert figure.axes[4].get_ylabel() == "99.0% VaR"
+    assert figure.axes[0].images[0].norm.vmin == (
+        -figure.axes[0].images[0].norm.vmax
+    )
+    assert figure.axes[1].images[0].norm is (
+        figure.axes[0].images[0].norm
+    )
+
+
+def test_prepare_subperiod_exception_rate_matrices_rejects_gap(
+) -> None:
+    """A missing predeclared cell cannot silently become blank."""
+
+    coverage = _create_subperiod_coverage_table().drop(
+        index=(
+            "calendar_2019",
+            "ewma_gaussian_monte_carlo",
+            0.99,
+        )
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="must contain exactly",
+    ):
+        prepare_subperiod_exception_rate_matrices(
+            coverage
+        )
+
+
+def test_save_subperiod_exception_rate_figure_creates_png_and_svg(
+    tmp_path: Path,
+) -> None:
+    """The subperiod figure is saved in publication formats."""
+
+    coverage = _create_subperiod_coverage_table()
+    png_path = tmp_path / "subperiod_exception_rates.png"
+    svg_path = tmp_path / "subperiod_exception_rates.svg"
+
+    saved_png, saved_svg = (
+        save_subperiod_exception_rate_figure(
+            var_coverage=coverage,
+            png_output_path=png_path,
+            svg_output_path=svg_path,
+        )
+    )
+
+    assert saved_png == png_path
+    assert saved_svg == svg_path
+    assert png_path.stat().st_size > 25_000
+    assert svg_path.stat().st_size > 25_000
+    assert png_path.read_bytes().startswith(
+        b"\x89PNG\r\n\x1a\n"
+    )
+    svg_text = svg_path.read_text(encoding="utf-8")
+    assert "<svg" in svg_text
+    assert "NBER recession" in svg_text

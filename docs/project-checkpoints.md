@@ -250,6 +250,16 @@ comparison protocol.
   `002476b17a5b278a4d3db2e92795e4c57c790e9e2c8fb2af1dae204796866d78`,
   and the predictive-accuracy CSV SHA-256 is
   `955d38d4e7659d96981bd2e535d3a50a70e7c937cbed59b03b425bdad79e795c`.
+- [x] Create and visually verify the confidence-level-faceted subperiod VaR
+  exception-rate heatmap. The official figure snapshot is
+  `20261014T192324342907Z_baseline_11_asset_subperiod_exception_rate_figure`;
+  its 300-DPI PNG SHA-256 is
+  `092aa43a56d9066d60509e65a1f8c8c2d2423b53672903416d7d440ffda14c62`
+  and its SVG SHA-256 is
+  `f36f073583105f8a8400917d0519fd015f1c0957b6b1f30cb810f64eee058f6d`.
+- [ ] Create the observed-versus-expected exception-count figure with
+  pointwise exact intervals.
+- [ ] Create the subperiod predictive-score rank heatmaps.
 - [ ] Create and visually verify the professional subperiod figures.
 
 ## 13. C++ numerical simulation core

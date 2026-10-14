@@ -1802,18 +1802,28 @@ Interpretation follows a fixed hierarchy:
 6. Changes in descriptive model ranks do not establish statistically
    different predictive accuracy.
 
-The versioned report will save `subperiod_definitions.csv`,
+The versioned report saves `subperiod_definitions.csv`,
 `subperiod_var_coverage.csv`, `subperiod_es_tail_severity.csv`,
 `subperiod_joint_calibration.csv`, and
-`subperiod_predictive_accuracy.csv`. Planned figures are a confidence-level
-faceted heatmap of observed-minus-nominal exception rates, an
-observed-versus-expected exception-count display with pointwise exact
-intervals, and score-rank heatmaps. Figure design follows only after the
-tested tables are validated.
+`subperiod_predictive_accuracy.csv`. The first implemented figure is a
+confidence-level-faceted heatmap of observed-minus-nominal exception rates.
+It uses percentage-point cell labels and one shared symmetric scale centered
+at zero, so the sign and color retain the same meaning across every model and
+confidence level. Calendar years 2012–2025 occupy the main panels. The
+February–April 2020 NBER contraction is shown in a separate strip because it
+overlaps calendar 2020 and contains only 62 sessions. Positive red cells mean
+more exceptions than nominal and therefore tail-risk underestimation;
+negative blue cells mean fewer exceptions and possible conservatism. A note
+explicitly warns that the plot is descriptive and that sparse tail counts can
+produce large deviations, especially at 99% VaR.
 
-Metadata must identify the report as `descriptive_secondary_analysis`, retain
-the source-backtest snapshot identifiers and checksums, record the complete
-period-definition rules and sparse-tail flags, and store a SHA-256 checksum
+Remaining planned figures are an observed-versus-expected exception-count
+display with pointwise exact intervals and predictive-score rank heatmaps.
+Their designs likewise follow only from the validated tables.
+
+Metadata identifies the report as `descriptive_secondary_analysis`, retains
+the source-backtest snapshot identifiers and checksums, records the complete
+period-definition rules and sparse-tail flags, and stores a SHA-256 checksum
 for every table and figure. New runs create new versioned directories without
 overwriting earlier subperiod snapshots.
 

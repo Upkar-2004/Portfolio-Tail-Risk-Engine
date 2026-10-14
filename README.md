@@ -217,3 +217,21 @@ interval status, sparse-tail thresholds, and within-period scoring rules.
 This report is a descriptive secondary analysis. It adds no subperiod
 hypothesis tests, rejection decisions, or multiple-testing family; the
 completed full-sample inference remains primary.
+
+Generate the first publication subperiod figure from that verified snapshot:
+
+```bash
+.venv/bin/python scripts/report_subperiod_exception_rates.py \
+  data/evaluations/20261014T170317535380Z_baseline_11_asset_subperiod_analysis
+```
+
+The command verifies the saved VaR-coverage checksum before plotting. It
+creates a new immutable figure directory under `data/evaluations/`, records
+PNG and SVG checksums plus source lineage, and refreshes the stable tracked
+copies at `reports/figures/subperiod_exception_rate_heatmap.png` and
+`reports/figures/subperiod_exception_rate_heatmap.svg`. The three confidence-
+level panels show observed minus nominal annual exception rates in percentage
+points. The overlapping 62-session February-April 2020 NBER case study is
+kept in a separate strip. Red means more exceptions than nominal; blue means
+fewer. The display is descriptive, and sparse counts—especially at 99%—must
+not be read as a visual hypothesis test.
