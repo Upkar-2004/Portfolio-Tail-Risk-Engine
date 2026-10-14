@@ -11,6 +11,8 @@ import pandas as pd
 
 
 _ES_VAR_ORDER_TOLERANCE = 1e-12
+_BASEL_TRAFFIC_LIGHT_CONFIDENCE_LEVEL = 0.99
+_BASEL_TRAFFIC_LIGHT_WINDOW = 250
 
 
 @dataclass(frozen=True)
@@ -104,6 +106,443 @@ class DieboldMarianoTestResult:
     p_value: float
     significance_level: float
     reject_null: bool
+
+
+
+
+
+def classify_basel_traffic_light(
+    exception_count: int,
+) -> str:
+    """Classify 99% VaR exceptions in a 250-session Basel window.
+
+    Zero through four exceptions are green, five through nine are
+    amber, and ten or more are red.
+    """
+
+    if (
+        isinstance(exception_count, bool)
+        or not isinstance(exception_count, Integral)
+        or exception_count < 0
+        or exception_count > _BASEL_TRAFFIC_LIGHT_WINDOW
+    ):
+        raise ValueError(
+            "Exception count must be an integer between "
+            "zero and 250."
+        )
+
+    exception_count = int(exception_count)
+
+    if exception_count <= 4:
+        return "green"
+
+    if exception_count <= 9:
+        return "amber"
+
+    return "red"
+
+
+
+
+
+def calculate_basel_traffic_light_path(
+    forecasts: pd.DataFrame,
+) -> pd.DataFrame:
+    """Calculate rolling 250-session zones for 99% VaR forecasts.
+
+    The returned index contains each eligible window's ending forecast
+    date. Partial windows are not reported.
+    """
+
+    # Reuse the established validation for the forecast index, finite
+    # losses and VaR values, and strict exceedance indicators.
+    summarize_var_exceedances(
+        forecasts=forecasts,
+    )
+
+    if list(forecasts.index.names) != [
+        "forecast_date",
+        "confidence_level",
+    ]:
+        raise ValueError(
+            "Forecasts must use forecast_date and confidence_level "
+            "as their ordered index levels."
+        )
+
+    confidence_levels = (
+        forecasts.index.get_level_values(
+            "confidence_level"
+        )
+    )
+    level_mask = (
+        confidence_levels
+        == _BASEL_TRAFFIC_LIGHT_CONFIDENCE_LEVEL
+    )
+
+    if not level_mask.any():
+        raise ValueError(
+            "Forecasts must contain 99% VaR rows for the Basel "
+            "traffic-light diagnostic."
+        )
+
+    level_forecasts = forecasts.loc[level_mask].copy()
+    level_forecasts.index = (
+        level_forecasts.index.droplevel(
+            "confidence_level"
+        )
+    )
+
+    if not level_forecasts.index.is_monotonic_increasing:
+        raise ValueError(
+            "The 99% VaR forecasts must be ordered by increasing "
+            "forecast date."
+        )
+
+    if len(level_forecasts) < _BASEL_TRAFFIC_LIGHT_WINDOW:
+        raise ValueError(
+            "At least 250 forecast sessions are required for the "
+            "Basel traffic-light diagnostic."
+        )
+
+    rolling_counts = (
+        level_forecasts["var_exceedance"]
+        .astype(int)
+        .rolling(
+            window=_BASEL_TRAFFIC_LIGHT_WINDOW,
+            min_periods=_BASEL_TRAFFIC_LIGHT_WINDOW,
+        )
+        .sum()
+        .iloc[_BASEL_TRAFFIC_LIGHT_WINDOW - 1:]
+        .astype(int)
+    )
+    window_count = len(rolling_counts)
+    window_start_dates = level_forecasts.index[
+        :window_count
+    ]
+    zones = [
+        classify_basel_traffic_light(
+            exception_count=int(exception_count),
+        )
+        for exception_count in rolling_counts
+    ]
+
+    return pd.DataFrame(
+        {
+            "window_start_date": window_start_dates,
+            "window_observation_count": (
+                _BASEL_TRAFFIC_LIGHT_WINDOW
+            ),
+            "confidence_level": (
+                _BASEL_TRAFFIC_LIGHT_CONFIDENCE_LEVEL
+            ),
+            "exception_count": rolling_counts.to_numpy(
+                dtype=int
+            ),
+            "traffic_light_zone": zones,
+        },
+        index=rolling_counts.index.copy(),
+    )
+
+
+
+
+
+def evaluate_models_basel_traffic_light(
+    forecasts_by_model: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Combine aligned model traffic-light paths.
+
+    Models must use identical ordered forecast rows and realized losses.
+    The returned index contains model and rolling-window end date.
+    """
+
+    if not isinstance(forecasts_by_model, dict):
+        raise TypeError(
+            "Forecasts by model must be a dictionary."
+        )
+
+    if not forecasts_by_model:
+        raise ValueError(
+            "At least one model forecast table is required."
+        )
+
+    paths_by_model: dict[str, pd.DataFrame] = {}
+    reference_index: pd.Index | None = None
+    reference_losses: np.ndarray | None = None
+    reference_model: str | None = None
+
+    for model_name, forecasts in (
+        forecasts_by_model.items()
+    ):
+        if (
+            not isinstance(model_name, str)
+            or not model_name.strip()
+        ):
+            raise ValueError(
+                "Each model name must be a non-empty string."
+            )
+
+        if not isinstance(forecasts, pd.DataFrame):
+            raise TypeError(
+                "Each model's forecasts must be a pandas DataFrame."
+            )
+
+        if (
+            reference_index is not None
+            and not forecasts.index.equals(
+                reference_index
+            )
+        ):
+            raise ValueError(
+                "All models must use the same ordered "
+                "forecast index."
+            )
+
+        model_path = calculate_basel_traffic_light_path(
+            forecasts=forecasts,
+        )
+
+        if reference_index is None:
+            reference_index = forecasts.index
+            reference_losses = forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+            reference_model = model_name
+        else:
+            model_losses = forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+
+            if not np.allclose(
+                model_losses,
+                reference_losses,
+                rtol=1e-12,
+                atol=1e-15,
+            ):
+                raise ValueError(
+                    "All models must use identical realized "
+                    f"losses; {model_name} differs from "
+                    f"{reference_model}."
+                )
+
+        paths_by_model[model_name] = model_path
+
+    return pd.concat(
+        paths_by_model,
+        names=["model"],
+    )
+
+
+def summarize_models_basel_traffic_light(
+    traffic_light_paths: pd.DataFrame,
+) -> pd.DataFrame:
+    """Summarize rolling Basel-style zones for each model."""
+
+    if not isinstance(traffic_light_paths, pd.DataFrame):
+        raise TypeError(
+            "Traffic-light paths must be a pandas DataFrame."
+        )
+
+    if traffic_light_paths.empty:
+        raise ValueError(
+            "Traffic-light paths must not be empty."
+        )
+
+    if (
+        not isinstance(
+            traffic_light_paths.index,
+            pd.MultiIndex,
+        )
+        or list(traffic_light_paths.index.names)
+        != ["model", "forecast_date"]
+    ):
+        raise ValueError(
+            "Traffic-light paths must use model and forecast_date "
+            "index levels."
+        )
+
+    if traffic_light_paths.index.has_duplicates:
+        raise ValueError(
+            "Traffic-light path index entries must be unique."
+        )
+
+    required_columns = {
+        "window_start_date",
+        "window_observation_count",
+        "confidence_level",
+        "exception_count",
+        "traffic_light_zone",
+    }
+    missing_columns = (
+        required_columns - set(traffic_light_paths.columns)
+    )
+
+    if missing_columns:
+        missing_names = ", ".join(
+            sorted(missing_columns)
+        )
+        raise ValueError(
+            "Traffic-light paths are missing required "
+            f"column(s): {missing_names}."
+        )
+
+    if not (
+        traffic_light_paths["window_observation_count"]
+        == _BASEL_TRAFFIC_LIGHT_WINDOW
+    ).all():
+        raise ValueError(
+            "Traffic-light paths must use 250-session windows."
+        )
+
+    if not np.allclose(
+        traffic_light_paths["confidence_level"].to_numpy(
+            dtype=float
+        ),
+        _BASEL_TRAFFIC_LIGHT_CONFIDENCE_LEVEL,
+        rtol=0.0,
+        atol=0.0,
+    ):
+        raise ValueError(
+            "Traffic-light paths must use 99% VaR forecasts."
+        )
+
+    exception_counts = traffic_light_paths[
+        "exception_count"
+    ]
+
+    if any(
+        isinstance(value, (bool, np.bool_))
+        or not isinstance(value, Integral)
+        for value in exception_counts
+    ):
+        raise ValueError(
+            "Traffic-light exception counts must be integers."
+        )
+
+    expected_zones = pd.Series(
+        [
+            classify_basel_traffic_light(
+                exception_count=int(value),
+            )
+            for value in exception_counts
+        ],
+        index=traffic_light_paths.index,
+    )
+
+    if not expected_zones.equals(
+        traffic_light_paths[
+            "traffic_light_zone"
+        ].astype(str)
+    ):
+        raise ValueError(
+            "Traffic-light zones must agree with exception counts."
+        )
+
+    records: list[dict[str, object]] = []
+
+    for model_name, model_path in (
+        traffic_light_paths.groupby(
+            level="model",
+            sort=False,
+        )
+    ):
+        model_path = model_path.droplevel("model")
+
+        if not model_path.index.is_monotonic_increasing:
+            raise ValueError(
+                "Each model's traffic-light path must be ordered "
+                "by increasing forecast date."
+            )
+
+        window_count = len(model_path)
+        zone_counts = (
+            model_path["traffic_light_zone"]
+            .value_counts()
+        )
+        green_count = int(
+            zone_counts.get("green", 0)
+        )
+        amber_count = int(
+            zone_counts.get("amber", 0)
+        )
+        red_count = int(
+            zone_counts.get("red", 0)
+        )
+        maximum_exception_count = int(
+            model_path["exception_count"].max()
+        )
+        maximum_mask = (
+            model_path["exception_count"]
+            == maximum_exception_count
+        )
+        maximum_exception_date = (
+            model_path.index[maximum_mask][0]
+        )
+        latest = model_path.iloc[-1]
+        amber_dates = model_path.index[
+            model_path["traffic_light_zone"]
+            == "amber"
+        ]
+        red_dates = model_path.index[
+            model_path["traffic_light_zone"]
+            == "red"
+        ]
+
+        records.append(
+            {
+                "model": model_name,
+                "window_count": window_count,
+                "latest_forecast_date": (
+                    model_path.index[-1]
+                ),
+                "latest_exception_count": int(
+                    latest["exception_count"]
+                ),
+                "latest_zone": latest[
+                    "traffic_light_zone"
+                ],
+                "maximum_exception_count": (
+                    maximum_exception_count
+                ),
+                "maximum_exception_date": (
+                    maximum_exception_date
+                ),
+                "worst_zone": (
+                    classify_basel_traffic_light(
+                        exception_count=(
+                            maximum_exception_count
+                        ),
+                    )
+                ),
+                "green_window_count": green_count,
+                "amber_window_count": amber_count,
+                "red_window_count": red_count,
+                "green_window_rate": (
+                    green_count / window_count
+                ),
+                "amber_window_rate": (
+                    amber_count / window_count
+                ),
+                "red_window_rate": (
+                    red_count / window_count
+                ),
+                "first_amber_date": (
+                    amber_dates[0]
+                    if len(amber_dates) > 0
+                    else pd.NaT
+                ),
+                "first_red_date": (
+                    red_dates[0]
+                    if len(red_dates) > 0
+                    else pd.NaT
+                ),
+            }
+        )
+
+    return (
+        pd.DataFrame.from_records(records)
+        .set_index("model")
+    )
 
 
 

@@ -313,3 +313,35 @@ because market conditions and forecast errors cluster through time.
   distinguishes the two models under the chosen scoring rule.
 - Direction remains auditable because every result records the ordered model
   names and the signed mean differential.
+
+## 2026-10-13: Fixed the Basel-style traffic-light protocol
+
+**Status:** Accepted
+
+### Context
+
+Full-sample coverage and independence tests can conceal shorter periods in
+which a VaR model deteriorates. A rolling exception-count diagnostic adds an
+industry-recognizable view of how recent performance changes through time.
+
+### Decision
+
+- Apply the traffic-light diagnostic only to one-day 99% VaR forecasts.
+- Count strict VaR exceptions over complete rolling windows of exactly 250
+  forecast sessions.
+- Classify zero through four exceptions as green, five through nine as amber,
+  and ten or more as red.
+- Use the current Basel term `amber` while noting that older sources use
+  `yellow` for the same middle zone.
+- Do not emit partial-window classifications before 250 forecasts are
+  available.
+- Describe the output as Basel-style research evidence rather than a claim of
+  regulatory compliance.
+
+### Consequences
+
+- The first rolling classification occurs on forecast observation 250.
+- Thresholds are not reused for the 95% or 97.5% forecasts because they were
+  derived specifically for 99% coverage and a 250-observation sample.
+- Overlapping windows are treated as a descriptive monitoring sequence, not
+  as independent hypothesis tests.

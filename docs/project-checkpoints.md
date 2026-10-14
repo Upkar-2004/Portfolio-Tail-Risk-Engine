@@ -6,9 +6,9 @@ This checklist tracks the research, learning, and engineering progress of the Po
 
 **Current phase:** Statistical evaluation and uncertainty quantification
 
-**Next checkpoint:** Add the Basel rolling 250-session traffic-light diagnostic
-and begin predeclared subperiod analysis without changing the completed
-full-sample comparison protocol.
+**Next checkpoint:** Create and verify the professional three-panel Basel-style
+traffic-light figure, then begin predeclared subperiod analysis without
+changing the completed full-sample comparison protocol.
 
 ## 1. Project definition and research scope
 
@@ -210,6 +210,16 @@ full-sample comparison protocol.
   `0793527ab2c0fc44687103a7d34149ee78bc1a07892fc107fd1f915b4f5e3f1e`.
 - [x] Compare all models without assuming that greater complexity performs
   better.
+- [x] Implement and test the 99% VaR, 250-session Basel-style traffic-light
+  classifier, rolling paths, and compact multi-model summary.
+- [x] Add and test the checksum-verified traffic-light report command.
+- [x] Generate the baseline traffic-light report as snapshot
+  `20261014T021548912404Z_baseline_11_asset_basel_traffic_light`; the detailed
+  path CSV SHA-256 is
+  `849364f36415cb0f4c83be76d7a8e61630b4e4cc78e463aa3be6328c44589771`
+  and the summary CSV SHA-256 is
+  `336bc10f1687181a8c8193a261480ef608e17f6e4d1049d5507a46eb03f3cafd`.
+- [ ] Create and verify the three-panel traffic-light timeline figure.
 
 ## 13. C++ numerical simulation core
 

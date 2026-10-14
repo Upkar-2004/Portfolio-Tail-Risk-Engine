@@ -15,8 +15,11 @@ from tailrisk.evaluation import (
     calculate_exact_binomial_interval,
     calculate_var_es_identification_residuals,
     calculate_newey_west_mean_test,
+    calculate_basel_traffic_light_path,
     calculate_var_quantile_losses,
+    classify_basel_traffic_light,
     count_var_exceedance_transitions,
+    evaluate_models_basel_traffic_light,
     evaluate_models_fz0_loss,
     evaluate_models_diebold_mariano,
     evaluate_models_var_quantile_loss,
@@ -28,6 +31,7 @@ from tailrisk.evaluation import (
     summarize_es_tail_severity,
     summarize_fz0_loss,
     summarize_gaussian_monte_carlo_errors,
+    summarize_models_basel_traffic_light,
     summarize_var_exceedances,
     summarize_var_es_identification,
     summarize_var_quantile_loss,
@@ -3546,4 +3550,485 @@ def test_model_fz0_loss_rejects_empty_mapping(
     ):
         evaluate_models_fz0_loss(
             forecasts_by_model={},
+        )
+
+
+@pytest.mark.parametrize(
+    ("exception_count", "expected_zone"),
+    [
+        (0, "green"),
+        (4, "green"),
+        (5, "amber"),
+        (9, "amber"),
+        (10, "red"),
+        (250, "red"),
+    ],
+)
+def test_basel_traffic_light_classifies_boundaries(
+    exception_count: int,
+    expected_zone: str,
+) -> None:
+    """Basel zones change at five and ten exceptions."""
+
+    assert classify_basel_traffic_light(
+        exception_count=exception_count,
+    ) == expected_zone
+
+
+@pytest.mark.parametrize(
+    "bad_exception_count",
+    [
+        True,
+        -1,
+        251,
+        4.0,
+        "5",
+    ],
+)
+def test_basel_traffic_light_rejects_invalid_counts(
+    bad_exception_count: object,
+) -> None:
+    """A 250-session exception count must be an integer in range."""
+
+    with pytest.raises(
+        ValueError,
+        match="Exception count must be an integer",
+    ):
+        classify_basel_traffic_light(
+            exception_count=bad_exception_count,
+        )
+
+
+def _create_basel_traffic_light_forecasts(
+    exception_positions: set[int],
+    period_count: int = 250,
+    confidence_level: float = 0.99,
+) -> pd.DataFrame:
+    """Create controlled forecasts for rolling traffic-light tests."""
+
+    dates = pd.date_range(
+        start="2025-01-02",
+        periods=period_count,
+        freq="B",
+    )
+    index = pd.MultiIndex.from_product(
+        [
+            dates,
+            [confidence_level],
+        ],
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+    realized_losses = [
+        2.0 if position in exception_positions else 0.5
+        for position in range(period_count)
+    ]
+    value_at_risk = [1.0] * period_count
+
+    return pd.DataFrame(
+        {
+            "realized_loss": realized_losses,
+            "value_at_risk": value_at_risk,
+            "var_exceedance": [
+                loss > forecast
+                for loss, forecast in zip(
+                    realized_losses,
+                    value_at_risk,
+                    strict=True,
+                )
+            ],
+        },
+        index=index,
+    )
+
+
+@pytest.mark.parametrize(
+    ("exception_count", "expected_zone"),
+    [
+        (4, "green"),
+        (5, "amber"),
+        (9, "amber"),
+        (10, "red"),
+    ],
+)
+def test_basel_traffic_light_path_uses_complete_window(
+    exception_count: int,
+    expected_zone: str,
+) -> None:
+    """A complete 250-session window receives the expected zone."""
+
+    forecasts = _create_basel_traffic_light_forecasts(
+        exception_positions=set(
+            range(exception_count)
+        ),
+    )
+
+    result = calculate_basel_traffic_light_path(
+        forecasts=forecasts,
+    )
+
+    assert len(result) == 1
+    assert result.index.name == "forecast_date"
+    assert result.index[0] == forecasts.index[
+        -1
+    ][0]
+    assert result.iloc[0][
+        "window_start_date"
+    ] == forecasts.index[0][0]
+    assert result.iloc[0][
+        "window_observation_count"
+    ] == 250
+    assert result.iloc[0][
+        "confidence_level"
+    ] == pytest.approx(0.99)
+    assert result.iloc[0][
+        "exception_count"
+    ] == exception_count
+    assert result.iloc[0][
+        "traffic_light_zone"
+    ] == expected_zone
+
+
+def test_basel_traffic_light_path_drops_expired_exception(
+) -> None:
+    """An exception leaves the count after rolling beyond 250 dates."""
+
+    forecasts = _create_basel_traffic_light_forecasts(
+        exception_positions={0, 1, 2, 3, 4},
+        period_count=251,
+    )
+
+    result = calculate_basel_traffic_light_path(
+        forecasts=forecasts,
+    )
+
+    assert len(result) == 2
+    assert result["exception_count"].tolist() == [
+        5,
+        4,
+    ]
+    assert result["traffic_light_zone"].tolist() == [
+        "amber",
+        "green",
+    ]
+    assert result["window_start_date"].tolist() == [
+        forecasts.index[0][0],
+        forecasts.index[1][0],
+    ]
+
+
+def test_basel_traffic_light_path_rejects_partial_window(
+) -> None:
+    """Fewer than 250 forecast sessions cannot form a Basel window."""
+
+    forecasts = _create_basel_traffic_light_forecasts(
+        exception_positions=set(),
+        period_count=249,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="At least 250 forecast sessions",
+    ):
+        calculate_basel_traffic_light_path(
+            forecasts=forecasts,
+        )
+
+
+def test_basel_traffic_light_path_requires_99_percent_var(
+) -> None:
+    """Basel traffic-light thresholds apply only to 99% VaR rows."""
+
+    forecasts = _create_basel_traffic_light_forecasts(
+        exception_positions=set(),
+        confidence_level=0.95,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="contain 99% VaR rows",
+    ):
+        calculate_basel_traffic_light_path(
+            forecasts=forecasts,
+        )
+
+
+def test_basel_traffic_light_path_rejects_reverse_dates(
+) -> None:
+    """Rolling windows require increasing forecast dates."""
+
+    forecasts = _create_basel_traffic_light_forecasts(
+        exception_positions=set(),
+    ).iloc[::-1]
+
+    with pytest.raises(
+        ValueError,
+        match="ordered by increasing forecast date",
+    ):
+        calculate_basel_traffic_light_path(
+            forecasts=forecasts,
+        )
+
+
+def _create_aligned_basel_model_forecasts(
+    exception_positions: set[int],
+    period_count: int = 251,
+) -> pd.DataFrame:
+    """Create model forecasts with common realized losses."""
+
+    dates = pd.date_range(
+        start="2025-01-02",
+        periods=period_count,
+        freq="B",
+    )
+    index = pd.MultiIndex.from_product(
+        [
+            dates,
+            [0.99],
+        ],
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+    realized_losses = [1.0] * period_count
+    value_at_risk = [
+        0.5 if position in exception_positions else 1.5
+        for position in range(period_count)
+    ]
+
+    return pd.DataFrame(
+        {
+            "realized_loss": realized_losses,
+            "value_at_risk": value_at_risk,
+            "var_exceedance": [
+                loss > forecast
+                for loss, forecast in zip(
+                    realized_losses,
+                    value_at_risk,
+                    strict=True,
+                )
+            ],
+        },
+        index=index,
+    )
+
+
+def test_model_basel_traffic_light_combines_aligned_paths(
+) -> None:
+    """Aligned model forecasts produce one combined rolling table."""
+
+    forecasts_by_model = {
+        "rolling_gaussian": (
+            _create_aligned_basel_model_forecasts(
+                exception_positions=set(range(10)),
+            )
+        ),
+        "ewma_gaussian": (
+            _create_aligned_basel_model_forecasts(
+                exception_positions=set(range(5)),
+            )
+        ),
+        "filtered_historical": (
+            _create_aligned_basel_model_forecasts(
+                exception_positions={1, 2, 3, 4},
+            )
+        ),
+    }
+
+    result = evaluate_models_basel_traffic_light(
+        forecasts_by_model=forecasts_by_model,
+    )
+
+    assert result.index.names == [
+        "model",
+        "forecast_date",
+    ]
+    assert len(result) == 6
+    assert result.loc[
+        "rolling_gaussian",
+        "exception_count",
+    ].tolist() == [10, 9]
+    assert result.loc[
+        "rolling_gaussian",
+        "traffic_light_zone",
+    ].tolist() == ["red", "amber"]
+    assert result.loc[
+        "ewma_gaussian",
+        "traffic_light_zone",
+    ].tolist() == ["amber", "green"]
+    assert result.loc[
+        "filtered_historical",
+        "traffic_light_zone",
+    ].tolist() == ["green", "green"]
+
+
+def test_model_basel_traffic_light_summary_matches_paths(
+) -> None:
+    """The compact summary reports latest, worst, and zone durations."""
+
+    paths = evaluate_models_basel_traffic_light(
+        forecasts_by_model={
+            "rolling_gaussian": (
+                _create_aligned_basel_model_forecasts(
+                    exception_positions=set(range(10)),
+                )
+            ),
+            "ewma_gaussian": (
+                _create_aligned_basel_model_forecasts(
+                    exception_positions=set(range(5)),
+                )
+            ),
+            "filtered_historical": (
+                _create_aligned_basel_model_forecasts(
+                    exception_positions={1, 2, 3, 4},
+                )
+            ),
+        }
+    )
+
+    result = summarize_models_basel_traffic_light(
+        traffic_light_paths=paths,
+    )
+
+    assert list(result.index) == [
+        "rolling_gaussian",
+        "ewma_gaussian",
+        "filtered_historical",
+    ]
+
+    rolling = result.loc["rolling_gaussian"]
+    assert rolling["window_count"] == 2
+    assert rolling["latest_exception_count"] == 9
+    assert rolling["latest_zone"] == "amber"
+    assert rolling["maximum_exception_count"] == 10
+    assert rolling["worst_zone"] == "red"
+    assert rolling["green_window_count"] == 0
+    assert rolling["amber_window_count"] == 1
+    assert rolling["red_window_count"] == 1
+    assert rolling["green_window_rate"] == pytest.approx(
+        0.0
+    )
+    assert rolling["amber_window_rate"] == pytest.approx(
+        0.5
+    )
+    assert rolling["red_window_rate"] == pytest.approx(
+        0.5
+    )
+    assert rolling["maximum_exception_date"] == (
+        paths.loc["rolling_gaussian"].index[0]
+    )
+    assert rolling["first_amber_date"] == (
+        paths.loc["rolling_gaussian"].index[1]
+    )
+    assert rolling["first_red_date"] == (
+        paths.loc["rolling_gaussian"].index[0]
+    )
+
+    ewma = result.loc["ewma_gaussian"]
+    assert ewma["latest_zone"] == "green"
+    assert ewma["maximum_exception_count"] == 5
+    assert ewma["worst_zone"] == "amber"
+    assert ewma["green_window_count"] == 1
+    assert ewma["amber_window_count"] == 1
+    assert ewma["red_window_count"] == 0
+    assert pd.isna(ewma["first_red_date"])
+
+    filtered = result.loc["filtered_historical"]
+    assert filtered["latest_zone"] == "green"
+    assert filtered["maximum_exception_count"] == 4
+    assert filtered["worst_zone"] == "green"
+    assert filtered["green_window_count"] == 2
+    assert pd.isna(filtered["first_amber_date"])
+    assert pd.isna(filtered["first_red_date"])
+
+
+def test_model_basel_traffic_light_rejects_misaligned_index(
+) -> None:
+    """Combined traffic lights require identical ordered rows."""
+
+    rolling_forecasts = (
+        _create_aligned_basel_model_forecasts(
+            exception_positions=set(),
+        )
+    )
+    ewma_forecasts = (
+        _create_aligned_basel_model_forecasts(
+            exception_positions=set(),
+        ).iloc[::-1]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="same ordered forecast index",
+    ):
+        evaluate_models_basel_traffic_light(
+            forecasts_by_model={
+                "rolling_gaussian": rolling_forecasts,
+                "ewma_gaussian": ewma_forecasts,
+            }
+        )
+
+
+def test_model_basel_traffic_light_rejects_different_losses(
+) -> None:
+    """Combined traffic lights require identical realized losses."""
+
+    rolling_forecasts = (
+        _create_aligned_basel_model_forecasts(
+            exception_positions=set(),
+        )
+    )
+    ewma_forecasts = (
+        _create_aligned_basel_model_forecasts(
+            exception_positions=set(),
+        )
+    )
+    ewma_forecasts.iloc[
+        0,
+        ewma_forecasts.columns.get_loc(
+            "realized_loss"
+        ),
+    ] += 0.1
+
+    with pytest.raises(
+        ValueError,
+        match="identical realized losses",
+    ):
+        evaluate_models_basel_traffic_light(
+            forecasts_by_model={
+                "rolling_gaussian": rolling_forecasts,
+                "ewma_gaussian": ewma_forecasts,
+            }
+        )
+
+
+def test_basel_traffic_light_summary_rejects_wrong_zone(
+) -> None:
+    """Stored traffic-light zones must agree with exception counts."""
+
+    paths = evaluate_models_basel_traffic_light(
+        forecasts_by_model={
+            "rolling_gaussian": (
+                _create_aligned_basel_model_forecasts(
+                    exception_positions=set(),
+                )
+            ),
+        }
+    )
+    paths.iloc[
+        0,
+        paths.columns.get_loc(
+            "traffic_light_zone"
+        ),
+    ] = "red"
+
+    with pytest.raises(
+        ValueError,
+        match="must agree with exception counts",
+    ):
+        summarize_models_basel_traffic_light(
+            traffic_light_paths=paths,
         )

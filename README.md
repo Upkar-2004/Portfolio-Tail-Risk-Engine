@@ -161,3 +161,31 @@ within those two nine-test families. The accompanying `metadata.json` records
 the score direction, null hypothesis, HAC kernel and bandwidth rule,
 significance level, separate Holm families, source snapshot checksums, and
 output checksum.
+
+## Basel-style rolling traffic-light evaluation
+
+Generate the rolling 99% VaR monitoring report from the three verified
+baseline backtests:
+
+```bash
+.venv/bin/python scripts/report_basel_traffic_light.py \
+  data/portfolio/20260825T162125895465Z_baseline_11_asset \
+  data/backtests/20261005T021450532620Z_baseline_11_asset_rolling_gaussian_monte_carlo \
+  data/backtests/20261006T151840866317Z_baseline_11_asset_ewma_gaussian_monte_carlo \
+  data/backtests/20261011T112940733142Z_baseline_11_asset_filtered_historical_simulation
+```
+
+The command verifies each source checksum and the shared portfolio lineage,
+then counts strict 99% VaR exceptions over complete rolling 250-session
+windows. It assigns the current Basel labels green for zero through four
+exceptions, amber for five through nine, and red for ten or more. The output
+is a Basel-style research diagnostic rather than a claim of regulatory
+compliance.
+
+Each run saves `basel_traffic_light_path.csv`,
+`basel_traffic_light_summary.csv`, and `metadata.json` under a versioned
+directory in `data/evaluations/`. The detailed path stores textual zone labels
+rather than presentation colours. The compact summary reports latest and
+worst zones, maximum exception counts and dates, zone counts and rates, and
+first amber and red dates. Metadata records the thresholds, official Basel
+reference, source snapshots, and both CSV checksums.

@@ -1495,6 +1495,125 @@ procedure. Joint VaR-ES score comparisons by DM tests are supported directly
 by the joint-elicitability literature
 ([Fissler, Ziegel, and Gneiting, 2016](https://arxiv.org/abs/1507.00244)).
 
+### 8.8 Basel-style rolling traffic-light diagnostic
+
+The Basel market-risk backtesting framework classifies a 99% one-day VaR model
+from the number of exceptions observed over the most recent 250 trading days.
+The current framework calls the three categories green, amber, and red
+([Basel Committee on Banking Supervision, MAR32.9](https://www.bis.org/committees/bcbs/basel-framework/standard/mar/32/inforce/2022-01-01/published/2019-12-15)).
+Older Basel material often calls the middle category yellow; this project uses
+the current term **amber**.
+
+For model $m$, define its 99% VaR exception indicator by
+
+```math
+I_{m,t,0.99}
+=
+\mathbf{1}
+\left\{
+L_t>q_{m,t,0.99}
+\right\}.
+```
+
+The strict inequality matches the project's existing VaR exceedance rule. For
+each date with 250 available forecast observations, the rolling exception
+count is
+
+```math
+N_{m,t}^{(250)}
+=
+\sum_{j=0}^{249}
+I_{m,t-j,0.99}.
+```
+
+If a model has correct independent 99% coverage, the expected count in a
+250-session window is
+
+```math
+\mathbb{E}\!\left[N_{m,t}^{(250)}\right]
+=
+250(1-0.99)
+=
+2.5.
+```
+
+The zone function is
+
+```math
+Z\!\left(N_{m,t}^{(250)}\right)
+=
+\begin{cases}
+\text{green}, & 0\le N_{m,t}^{(250)}\le4,\\
+\text{amber}, & 5\le N_{m,t}^{(250)}\le9,\\
+\text{red}, & 10\le N_{m,t}^{(250)}\le250.
+\end{cases}
+```
+
+The thresholds are derived for exactly 250 observations at 99% coverage. The
+Basel guidance explains that boundaries for other sample sizes must be derived
+from the corresponding binomial probabilities rather than copying these
+counts unchanged
+([Basel Committee on Banking Supervision, MAR99.17](https://www.bis.org/committees/bcbs/basel-framework/standard/mar/99/inforce/2022-01-01/published/2019-12-15)).
+Accordingly, the baseline diagnostic will use only the project's 99% VaR rows
+and will emit its first classification only after 250 forecast sessions are
+available.
+
+This rolling diagnostic answers a different question from the full-sample
+tests. Kupiec tests the overall exception frequency, Christoffersen tests
+exception independence, and the traffic-light path shows when recent model
+performance moves into a supervisory warning region. Overlapping 250-session
+windows are strongly dependent, so the sequence of zones is a descriptive
+monitoring diagnostic rather than a new sequence of independent hypothesis
+tests.
+
+For a compact comparison, let $\mathcal{T}_m$ be model $m$'s eligible rolling
+window end dates and let $W_m=|\mathcal{T}_m|$. For zone
+$z\in\{\text{green},\text{amber},\text{red}\}$, the number and proportion of
+windows in that zone are
+
+```math
+C_{m,z}
+=
+\sum_{t\in\mathcal{T}_m}
+\mathbf{1}\{Z(N_{m,t}^{(250)})=z\},
+\qquad
+R_{m,z}
+=
+\frac{C_{m,z}}{W_m}.
+```
+
+The counts must satisfy
+
+```math
+C_{m,\mathrm{green}}
++
+C_{m,\mathrm{amber}}
++
+C_{m,\mathrm{red}}
+=
+W_m,
+```
+
+and their rates sum to one. The summary also reports the latest count and
+zone, the maximum rolling exception count
+
+```math
+N_m^{\max}
+=
+\max_{t\in\mathcal{T}_m}
+N_{m,t}^{(250)},
+```
+
+and the earliest date attaining that maximum. First amber and first red dates
+are retained when those zones occur; otherwise they are recorded as missing.
+These quantities describe duration, timing, and worst observed recent
+performance without treating overlapping windows as independent evidence.
+
+The project labels the result **Basel-style**, not regulatory compliance. The
+Basel rules refer to defined actual and hypothetical trading outcomes within a
+bank's regulatory backtesting programme. This research engine instead compares
+its documented portfolio-loss series with model VaR forecasts.
+
 ## 9. Decisions still to be finalized
 
 The following choices remain open and must be documented before the relevant experiments begin:
