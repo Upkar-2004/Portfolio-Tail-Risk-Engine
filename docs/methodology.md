@@ -1638,6 +1638,185 @@ traffic-light path and summary tables, and the report metadata stores the
 palette, thresholds, panel order, output filenames, and SHA-256 checksums so
 the displayed result remains reproducible.
 
+### 8.9 Predeclared subperiod analysis
+
+The full-sample evaluation remains the project's primary statistical
+protocol. Subperiod analysis is a secondary diagnostic of whether calibration,
+tail severity, and predictive accuracy appear stable through time. It does not
+replace, modify, or selectively reinterpret any completed full-sample test.
+
+For subperiod $s$, let $\mathcal{T}_s$ be its common aligned forecast dates and
+let
+
+```math
+n_s=|\mathcal{T}_s|.
+```
+
+For model $m$ and confidence level $\alpha$, define the subperiod exception
+count and rate by
+
+```math
+X_{m,s,\alpha}
+=
+\sum_{t\in\mathcal{T}_s} I_{m,t,\alpha},
+\qquad
+\widehat p_{m,s,\alpha}
+=
+\frac{X_{m,s,\alpha}}{n_s},
+```
+
+where the unchanged strict exception rule is
+
+```math
+I_{m,t,\alpha}
+=
+\mathbf{1}\{L_t>\operatorname{VaR}_{m,t,\alpha}\}.
+```
+
+Under correct unconditional coverage, the nominal exception probability is
+$p_\alpha=1-\alpha$ and the expected subperiod count is
+
+```math
+E_{s,\alpha}=n_s(1-\alpha).
+```
+
+The full-sample rate is a sample-size-weighted average of disjoint subperiod
+rates. Consequently, conservative and anti-conservative periods can offset
+one another even when the pooled rate is close to nominal. Subperiod tables
+are intended to expose that instability without treating a favorable pooled
+or local result as proof that the model is correct.
+
+#### 8.9.1 Calendar-year periods
+
+The calendar analysis includes every calendar year from 2012 through 2025,
+intersected with the common ordered forecast dates shared by all three models.
+The exact observation count is retained for every year; no year is assumed to
+contain 250 sessions. A year with fewer than 90% of the largest annual common
+observation count is retained and labelled as partial rather than silently
+excluded.
+
+Calendar boundaries are economically arbitrary, but they are objective,
+exhaustive, familiar to readers, and unaffected by the observed model
+results. Every qualifying year must be reported, including quiet years and
+years in which the models behave similarly.
+
+#### 8.9.2 Externally defined stress episode
+
+The initial event study uses every U.S. recession in the National Bureau of
+Economic Research business-cycle chronology that intersects the common
+forecast sample. The NBER chronology defines the only such contraction in the
+current sample with a February 2020 peak month and an April 2020 trough month
+([NBER Business Cycle Dating](https://www.nber.org/research/business-cycle-dating)).
+
+Because the chronology is monthly, the deterministic date-mapping rule
+includes every common forecast session whose calendar month lies from the
+published peak month through the published trough month, inclusive. The
+current stress episode is therefore the intersection of the common forecast
+dates with 2020-02-01 through 2020-04-30. The metadata must record the source,
+published peak and trough months, daily mapping convention, realized first
+and last forecast dates, and exact observation count.
+
+This episode is an externally dated U.S. economic contraction, not a claim
+that every included session experienced equal financial-market stress. Its
+short length makes it a descriptive case study. The complete 2020 calendar
+year provides a broader companion period. Additional hand-selected event
+windows will not be added after inspecting the models' exception paths. A
+future market-stress regime based on an external indicator would require a
+separate predeclared source, threshold, timing rule, and treatment of
+non-contiguous dates before any results are calculated.
+
+#### 8.9.3 Statistics and sparse-tail warnings
+
+Each model-confidence-period row reports:
+
+- period identifier, type, first and last forecast dates, observation count,
+  and partial-period flag;
+- nominal and observed exception probabilities, expected and observed
+  exception counts, and their signed differences;
+- the pointwise exact 95% binomial interval for the exception probability;
+- mean VaR and Expected Shortfall forecasts;
+- VaR-tail observation count and the existing descriptive tail-severity
+  statistics;
+- the mean all-session joint VaR-Expected-Shortfall identification residual;
+- mean VaR quantile loss and mean joint VaR-Expected-Shortfall FZ0 score; and
+- descriptive within-period model ranks, retaining ties.
+
+Transition counts may be reported only for a contiguous period and are
+descriptive. The subperiod report does not recalculate Basel traffic-light
+classifications because their thresholds apply to complete rolling
+250-session windows and the existing traffic-light report already preserves
+that timeline.
+
+Two reliability flags make sparse tail information explicit:
+
+```math
+\texttt{sparse\_expected\_tail}
+=
+\mathbf{1}\{n_s(1-\alpha)<5\},
+```
+
+and
+
+```math
+\texttt{sparse\_observed\_tail}
+=
+\mathbf{1}\{X_{m,s,\alpha}<5\}.
+```
+
+If no exception occurs, conditional tail-severity statistics remain missing,
+not zero. If one through four exceptions occur, the statistics are retained
+but explicitly flagged as unstable. Exact intervals express sampling
+uncertainty but do not remove the low power caused by rare events. This is
+particularly important for annual 99% VaR: a 250-session year has only 2.5
+expected exceptions and, even under correct independent calibration, has
+probability $0.99^{250}\approx0.081$ of containing no exception.
+
+#### 8.9.4 Inferential status and multiplicity
+
+The initial subperiod analysis is descriptive. It creates no new reject or
+do-not-reject decisions, reports no subperiod Kupiec, Christoffersen,
+joint-calibration, or Diebold-Mariano p-values, and therefore creates no new
+formal multiple-testing family. Pointwise binomial intervals must be labelled
+as non-simultaneous and must not be converted into a visual pass/fail rule.
+
+If formal subperiod inference is proposed later, its hypotheses, eligibility
+rules, and multiplicity families must be documented before those p-values are
+calculated. At minimum, conditional-coverage, joint-calibration, VaR
+quantile-loss comparison, and FZ0 comparison hypotheses would remain separate
+families, with Holm adjustment applied across all eligible periods within
+each declared family. Full-sample families and conclusions remain unchanged.
+
+#### 8.9.5 Interpretation and reproducible outputs
+
+Interpretation follows a fixed hierarchy:
+
+1. Completed full-sample inference supplies the primary conclusions.
+2. Calendar years diagnose temporal stability and locate periods that merit
+   explanation.
+3. The NBER contraction is a short, externally defined case study.
+4. A local adverse result is a warning, not by itself proof of general model
+   failure; a favorable local result cannot rescue a model that fails the
+   primary protocol.
+5. Too few exceptions may indicate excessive conservatism rather than better
+   forecasting.
+6. Changes in descriptive model ranks do not establish statistically
+   different predictive accuracy.
+
+The versioned report will save `subperiod_definitions.csv`,
+`subperiod_var_coverage.csv`, `subperiod_es_tail_severity.csv`,
+`subperiod_joint_calibration.csv`, and
+`subperiod_predictive_accuracy.csv`. Planned figures are a confidence-level
+faceted heatmap of observed-minus-nominal exception rates, an
+observed-versus-expected exception-count display with pointwise exact
+intervals, and score-rank heatmaps. Figure design follows only after the
+tested tables are validated.
+
+Metadata must identify the report as `descriptive_secondary_analysis`, retain
+the source-backtest snapshot identifiers and checksums, record the complete
+period-definition rules and sparse-tail flags, and store a SHA-256 checksum
+for every table and figure. New runs create new versioned directories without
+overwriting earlier subperiod snapshots.
+
 ## 9. Decisions still to be finalized
 
 The following choices remain open and must be documented before the relevant experiments begin:

@@ -13,6 +13,20 @@ import pandas as pd
 _ES_VAR_ORDER_TOLERANCE = 1e-12
 _BASEL_TRAFFIC_LIGHT_CONFIDENCE_LEVEL = 0.99
 _BASEL_TRAFFIC_LIGHT_WINDOW = 250
+_SUBPERIOD_FIRST_CALENDAR_YEAR = 2012
+_SUBPERIOD_LAST_CALENDAR_YEAR = 2025
+_SUBPERIOD_PARTIAL_YEAR_FRACTION = 0.90
+_NBER_BUSINESS_CYCLE_SOURCE = (
+    "https://www.nber.org/research/business-cycle-dating"
+)
+_NBER_RECESSION_PERIODS = (
+    {
+        "period_id": "nber_recession_2020",
+        "label": "NBER recession: February-April 2020",
+        "requested_start_date": pd.Timestamp("2020-02-01"),
+        "requested_end_date": pd.Timestamp("2020-04-30"),
+    },
+)
 
 
 @dataclass(frozen=True)
@@ -106,6 +120,283 @@ class DieboldMarianoTestResult:
     p_value: float
     significance_level: float
     reject_null: bool
+
+
+
+
+
+def _extract_common_forecast_dates(
+    forecasts_by_model: dict[str, pd.DataFrame],
+) -> pd.DatetimeIndex:
+    """Validate aligned model panels and return common forecast dates."""
+
+    if not isinstance(forecasts_by_model, dict):
+        raise TypeError(
+            "Forecasts by model must be a dictionary."
+        )
+
+    if not forecasts_by_model:
+        raise ValueError(
+            "At least one model forecast table is required."
+        )
+
+    reference_index: pd.MultiIndex | None = None
+    reference_losses: np.ndarray | None = None
+    reference_model: str | None = None
+    common_dates: pd.DatetimeIndex | None = None
+
+    for model_name, forecasts in forecasts_by_model.items():
+        if (
+            not isinstance(model_name, str)
+            or not model_name.strip()
+        ):
+            raise ValueError(
+                "Each model name must be a non-empty string."
+            )
+
+        if not isinstance(forecasts, pd.DataFrame):
+            raise TypeError(
+                "Each model's forecasts must be a pandas DataFrame."
+            )
+
+        if forecasts.empty:
+            raise ValueError(
+                "Each model's forecasts must not be empty."
+            )
+
+        if (
+            not isinstance(forecasts.index, pd.MultiIndex)
+            or list(forecasts.index.names)
+            != ["forecast_date", "confidence_level"]
+        ):
+            raise ValueError(
+                "Forecasts must use forecast_date and "
+                "confidence_level as their ordered index levels."
+            )
+
+        if forecasts.index.has_duplicates:
+            raise ValueError(
+                "Forecast index entries must be unique."
+            )
+
+        if not forecasts.index.is_monotonic_increasing:
+            raise ValueError(
+                "Forecast rows must be ordered by forecast date and "
+                "confidence level."
+            )
+
+        if "realized_loss" not in forecasts.columns:
+            raise ValueError(
+                "Forecasts are missing required column: "
+                "realized_loss."
+            )
+
+        date_level = forecasts.index.get_level_values(
+            "forecast_date"
+        )
+
+        if not isinstance(date_level, pd.DatetimeIndex):
+            raise ValueError(
+                "Forecast dates must be pandas datetime values."
+            )
+
+        if date_level.hasnans:
+            raise ValueError(
+                "Forecast dates must not contain missing values."
+            )
+
+        if date_level.tz is not None:
+            raise ValueError(
+                "Forecast dates must be timezone-naive."
+            )
+
+        try:
+            realized_losses = forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "Realized losses must contain numbers."
+            ) from error
+
+        if not np.isfinite(realized_losses).all():
+            raise ValueError(
+                "Realized losses must contain finite numbers."
+            )
+
+        loss_table = forecasts[
+            "realized_loss"
+        ].unstack("confidence_level")
+
+        if loss_table.isna().any().any():
+            raise ValueError(
+                "Every forecast date must contain every confidence "
+                "level."
+            )
+
+        reference_date_losses = loss_table.iloc[
+            :, 0
+        ].to_numpy(dtype=float)
+
+        if not np.allclose(
+            loss_table.to_numpy(dtype=float),
+            reference_date_losses[:, np.newaxis],
+            rtol=1e-12,
+            atol=1e-15,
+        ):
+            raise ValueError(
+                "Realized losses must be identical across confidence "
+                "levels on each forecast date."
+            )
+
+        if (
+            reference_index is not None
+            and not forecasts.index.equals(reference_index)
+        ):
+            raise ValueError(
+                "All models must use the same ordered forecast index."
+            )
+
+        if reference_index is None:
+            reference_index = forecasts.index
+            reference_losses = realized_losses
+            reference_model = model_name
+            common_dates = pd.DatetimeIndex(
+                loss_table.index.copy(),
+                name="forecast_date",
+            )
+        elif not np.allclose(
+            realized_losses,
+            reference_losses,
+            rtol=1e-12,
+            atol=1e-15,
+        ):
+            raise ValueError(
+                "All models must use identical realized losses; "
+                f"{model_name} differs from {reference_model}."
+            )
+
+    if common_dates is None:
+        raise RuntimeError(
+            "Common forecast dates could not be constructed."
+        )
+
+    return common_dates
+
+
+
+
+
+def create_subperiod_definitions(
+    forecasts_by_model: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Create predeclared calendar and NBER subperiod definitions.
+
+    All model panels must contain the same ordered forecast rows and
+    realized losses. Calendar periods cover 2012 through 2025. The
+    external event period uses the documented NBER monthly chronology.
+    """
+
+    common_dates = _extract_common_forecast_dates(
+        forecasts_by_model=forecasts_by_model,
+    )
+    calendar_records: list[dict[str, object]] = []
+
+    for year in range(
+        _SUBPERIOD_FIRST_CALENDAR_YEAR,
+        _SUBPERIOD_LAST_CALENDAR_YEAR + 1,
+    ):
+        requested_start = pd.Timestamp(
+            year=year,
+            month=1,
+            day=1,
+        )
+        requested_end = pd.Timestamp(
+            year=year,
+            month=12,
+            day=31,
+        )
+        period_dates = common_dates[
+            (common_dates >= requested_start)
+            & (common_dates <= requested_end)
+        ]
+
+        if period_dates.empty:
+            raise ValueError(
+                "Common forecast dates must cover every calendar year "
+                "from 2012 through 2025."
+            )
+
+        calendar_records.append(
+            {
+                "period_id": f"calendar_{year}",
+                "period_type": "calendar_year",
+                "label": f"Calendar year {year}",
+                "requested_start_date": requested_start,
+                "requested_end_date": requested_end,
+                "first_forecast_date": period_dates[0],
+                "last_forecast_date": period_dates[-1],
+                "observation_count": len(period_dates),
+                "is_partial": False,
+                "source": "predeclared_calendar_year_rule",
+            }
+        )
+
+    maximum_annual_count = max(
+        int(record["observation_count"])
+        for record in calendar_records
+    )
+
+    for record in calendar_records:
+        record["is_partial"] = bool(
+            int(record["observation_count"])
+            < (
+                _SUBPERIOD_PARTIAL_YEAR_FRACTION
+                * maximum_annual_count
+            )
+        )
+
+    stress_records: list[dict[str, object]] = []
+
+    for recession in _NBER_RECESSION_PERIODS:
+        requested_start = recession[
+            "requested_start_date"
+        ]
+        requested_end = recession[
+            "requested_end_date"
+        ]
+        period_dates = common_dates[
+            (common_dates >= requested_start)
+            & (common_dates <= requested_end)
+        ]
+
+        if period_dates.empty:
+            raise ValueError(
+                "The predeclared NBER recession must intersect the "
+                "common forecast dates."
+            )
+
+        stress_records.append(
+            {
+                "period_id": recession["period_id"],
+                "period_type": "nber_recession",
+                "label": recession["label"],
+                "requested_start_date": requested_start,
+                "requested_end_date": requested_end,
+                "first_forecast_date": period_dates[0],
+                "last_forecast_date": period_dates[-1],
+                "observation_count": len(period_dates),
+                "is_partial": False,
+                "source": _NBER_BUSINESS_CYCLE_SOURCE,
+            }
+        )
+
+    definitions = pd.DataFrame(
+        calendar_records + stress_records
+    ).set_index("period_id")
+    definitions.index.name = "period_id"
+
+    return definitions
 
 
 
@@ -976,6 +1267,485 @@ def summarize_var_exceedances(
         pd.DataFrame.from_records(records)
         .set_index("confidence_level")
     )
+
+
+
+
+
+def evaluate_models_subperiod_var_coverage(
+    forecasts_by_model: dict[str, pd.DataFrame],
+    interval_confidence_level: float = 0.95,
+) -> pd.DataFrame:
+    """Summarize descriptive VaR coverage in predeclared periods.
+
+    The result contains calendar-year and NBER rows for every aligned
+    model-confidence pair. Exact intervals are pointwise diagnostics;
+    this function performs no hypothesis tests or rejection decisions.
+    """
+
+    definitions = create_subperiod_definitions(
+        forecasts_by_model=forecasts_by_model,
+    )
+    records: list[
+        dict[str, bool | float | int | str | pd.Timestamp]
+    ] = []
+
+    for period_id, definition in definitions.iterrows():
+        requested_start = pd.Timestamp(
+            definition["requested_start_date"]
+        )
+        requested_end = pd.Timestamp(
+            definition["requested_end_date"]
+        )
+
+        for model_name, forecasts in (
+            forecasts_by_model.items()
+        ):
+            forecast_dates = (
+                forecasts.index.get_level_values(
+                    "forecast_date"
+                )
+            )
+            period_mask = (
+                (forecast_dates >= requested_start)
+                & (forecast_dates <= requested_end)
+            )
+            period_forecasts = forecasts.loc[
+                period_mask
+            ]
+
+            # This reuses the established positive-loss VaR/ES
+            # validation, including the strict exception rule and
+            # Expected Shortfall greater-than-or-equal-to-VaR check.
+            summarize_es_tail_severity(
+                forecasts=period_forecasts,
+            )
+            coverage = summarize_var_exceedances(
+                forecasts=period_forecasts,
+                interval_confidence_level=(
+                    interval_confidence_level
+                ),
+            )
+            mean_var = period_forecasts[
+                "value_at_risk"
+            ].groupby(
+                level="confidence_level",
+                sort=False,
+            ).mean()
+            mean_es = period_forecasts[
+                "expected_shortfall"
+            ].groupby(
+                level="confidence_level",
+                sort=False,
+            ).mean()
+
+            for confidence_level, summary in (
+                coverage.iterrows()
+            ):
+                observation_count = int(
+                    summary["observation_count"]
+                )
+                expected_count = float(
+                    summary[
+                        "expected_exceedance_count"
+                    ]
+                )
+                observed_count = int(
+                    summary["exceedance_count"]
+                )
+                nominal_rate = float(
+                    summary[
+                        "expected_exceedance_rate"
+                    ]
+                )
+                observed_rate = float(
+                    summary[
+                        "observed_exceedance_rate"
+                    ]
+                )
+
+                if observation_count != int(
+                    definition["observation_count"]
+                ):
+                    raise ValueError(
+                        "Subperiod observation counts must agree "
+                        "with the period definitions."
+                    )
+
+                records.append(
+                    {
+                        "period_id": str(period_id),
+                        "model": model_name,
+                        "confidence_level": float(
+                            confidence_level
+                        ),
+                        "period_type": str(
+                            definition["period_type"]
+                        ),
+                        "first_forecast_date": pd.Timestamp(
+                            definition[
+                                "first_forecast_date"
+                            ]
+                        ),
+                        "last_forecast_date": pd.Timestamp(
+                            definition[
+                                "last_forecast_date"
+                            ]
+                        ),
+                        "observation_count": observation_count,
+                        "is_partial": bool(
+                            definition["is_partial"]
+                        ),
+                        "nominal_exceedance_rate": nominal_rate,
+                        "expected_exceedance_count": (
+                            expected_count
+                        ),
+                        "observed_exceedance_count": (
+                            observed_count
+                        ),
+                        "observed_exceedance_rate": (
+                            observed_rate
+                        ),
+                        "observed_minus_expected_count": (
+                            observed_count - expected_count
+                        ),
+                        "observed_minus_expected_rate": (
+                            observed_rate - nominal_rate
+                        ),
+                        "interval_confidence_level": float(
+                            summary[
+                                "interval_confidence_level"
+                            ]
+                        ),
+                        "exact_interval_lower_bound": float(
+                            summary[
+                                "exceedance_rate_ci_lower"
+                            ]
+                        ),
+                        "exact_interval_upper_bound": float(
+                            summary[
+                                "exceedance_rate_ci_upper"
+                            ]
+                        ),
+                        "mean_value_at_risk": float(
+                            mean_var.loc[confidence_level]
+                        ),
+                        "mean_expected_shortfall": float(
+                            mean_es.loc[confidence_level]
+                        ),
+                        "sparse_expected_tail": bool(
+                            expected_count < 5.0
+                        ),
+                        "sparse_observed_tail": bool(
+                            observed_count < 5
+                        ),
+                    }
+                )
+
+    result = pd.DataFrame.from_records(records).set_index(
+        [
+            "period_id",
+            "model",
+            "confidence_level",
+        ]
+    )
+
+    return result
+
+
+
+
+
+def evaluate_models_subperiod_es_tail_severity(
+    forecasts_by_model: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Summarize descriptive ES tail severity in predeclared periods.
+
+    Severity statistics condition on the project's strict VaR
+    exception set. Rows with no exception retain missing conditional
+    statistics, while sparse expected and observed tails are flagged.
+    """
+
+    definitions = create_subperiod_definitions(
+        forecasts_by_model=forecasts_by_model,
+    )
+    records: list[
+        dict[str, bool | float | int | str | pd.Timestamp]
+    ] = []
+
+    for period_id, definition in definitions.iterrows():
+        requested_start = pd.Timestamp(
+            definition["requested_start_date"]
+        )
+        requested_end = pd.Timestamp(
+            definition["requested_end_date"]
+        )
+
+        for model_name, forecasts in (
+            forecasts_by_model.items()
+        ):
+            forecast_dates = (
+                forecasts.index.get_level_values(
+                    "forecast_date"
+                )
+            )
+            period_mask = (
+                (forecast_dates >= requested_start)
+                & (forecast_dates <= requested_end)
+            )
+            period_forecasts = forecasts.loc[
+                period_mask
+            ]
+            severity = summarize_es_tail_severity(
+                forecasts=period_forecasts,
+            )
+
+            for confidence_level, summary in (
+                severity.iterrows()
+            ):
+                observation_count = int(
+                    summary["observation_count"]
+                )
+                confidence_level = float(
+                    confidence_level
+                )
+                nominal_rate = 1.0 - confidence_level
+                expected_count = (
+                    observation_count * nominal_rate
+                )
+                observed_count = int(
+                    summary["var_exceedance_count"]
+                )
+
+                if observation_count != int(
+                    definition["observation_count"]
+                ):
+                    raise ValueError(
+                        "Subperiod observation counts must agree "
+                        "with the period definitions."
+                    )
+
+                records.append(
+                    {
+                        "period_id": str(period_id),
+                        "model": model_name,
+                        "confidence_level": confidence_level,
+                        "period_type": str(
+                            definition["period_type"]
+                        ),
+                        "first_forecast_date": pd.Timestamp(
+                            definition[
+                                "first_forecast_date"
+                            ]
+                        ),
+                        "last_forecast_date": pd.Timestamp(
+                            definition[
+                                "last_forecast_date"
+                            ]
+                        ),
+                        "observation_count": observation_count,
+                        "is_partial": bool(
+                            definition["is_partial"]
+                        ),
+                        "nominal_exceedance_rate": (
+                            nominal_rate
+                        ),
+                        "expected_exceedance_count": (
+                            expected_count
+                        ),
+                        "var_exceedance_count": observed_count,
+                        "mean_exceedance_loss": float(
+                            summary["mean_exceedance_loss"]
+                        ),
+                        "mean_var_on_exceedance_days": float(
+                            summary[
+                                "mean_var_on_exceedance_days"
+                            ]
+                        ),
+                        "mean_es_on_exceedance_days": float(
+                            summary[
+                                "mean_es_on_exceedance_days"
+                            ]
+                        ),
+                        "mean_var_excess": float(
+                            summary["mean_var_excess"]
+                        ),
+                        "median_var_excess": float(
+                            summary["median_var_excess"]
+                        ),
+                        "maximum_var_excess": float(
+                            summary["maximum_var_excess"]
+                        ),
+                        "mean_es_gap": float(
+                            summary["mean_es_gap"]
+                        ),
+                        "sparse_expected_tail": bool(
+                            expected_count < 5.0
+                        ),
+                        "sparse_observed_tail": bool(
+                            observed_count < 5
+                        ),
+                    }
+                )
+
+    result = pd.DataFrame.from_records(records).set_index(
+        [
+            "period_id",
+            "model",
+            "confidence_level",
+        ]
+    )
+
+    return result
+
+
+
+
+
+def evaluate_models_subperiod_var_es_identification(
+    forecasts_by_model: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Summarize descriptive joint VaR-ES residuals by subperiod.
+
+    The mean identification residual uses every forecast session. A
+    positive value indicates average tail-risk underestimation and a
+    negative value indicates overestimation. No inference is performed.
+    """
+
+    definitions = create_subperiod_definitions(
+        forecasts_by_model=forecasts_by_model,
+    )
+    records: list[
+        dict[str, bool | float | int | str | pd.Timestamp]
+    ] = []
+
+    for period_id, definition in definitions.iterrows():
+        requested_start = pd.Timestamp(
+            definition["requested_start_date"]
+        )
+        requested_end = pd.Timestamp(
+            definition["requested_end_date"]
+        )
+
+        for model_name, forecasts in (
+            forecasts_by_model.items()
+        ):
+            forecast_dates = (
+                forecasts.index.get_level_values(
+                    "forecast_date"
+                )
+            )
+            period_mask = (
+                (forecast_dates >= requested_start)
+                & (forecast_dates <= requested_end)
+            )
+            period_forecasts = forecasts.loc[
+                period_mask
+            ]
+            identification = (
+                calculate_var_es_identification_residuals(
+                    forecasts=period_forecasts,
+                )
+            )
+            analysis = identification.copy()
+            analysis["expected_shortfall"] = (
+                period_forecasts[
+                    "expected_shortfall"
+                ].to_numpy(dtype=float)
+            )
+            analysis["var_exceedance"] = (
+                period_forecasts[
+                    "var_exceedance"
+                ].to_numpy(dtype=bool)
+            )
+
+            for confidence_level, level_analysis in (
+                analysis.groupby(
+                    level="confidence_level",
+                    sort=False,
+                )
+            ):
+                observation_count = len(level_analysis)
+                confidence_level = float(
+                    confidence_level
+                )
+                expected_count = (
+                    observation_count
+                    * (1.0 - confidence_level)
+                )
+                observed_count = int(
+                    level_analysis[
+                        "var_exceedance"
+                    ].sum()
+                )
+
+                if observation_count != int(
+                    definition["observation_count"]
+                ):
+                    raise ValueError(
+                        "Subperiod observation counts must agree "
+                        "with the period definitions."
+                    )
+
+                records.append(
+                    {
+                        "period_id": str(period_id),
+                        "model": model_name,
+                        "confidence_level": confidence_level,
+                        "period_type": str(
+                            definition["period_type"]
+                        ),
+                        "first_forecast_date": pd.Timestamp(
+                            definition[
+                                "first_forecast_date"
+                            ]
+                        ),
+                        "last_forecast_date": pd.Timestamp(
+                            definition[
+                                "last_forecast_date"
+                            ]
+                        ),
+                        "observation_count": observation_count,
+                        "is_partial": bool(
+                            definition["is_partial"]
+                        ),
+                        "expected_exceedance_count": (
+                            expected_count
+                        ),
+                        "var_exceedance_count": observed_count,
+                        "mean_tail_contribution": float(
+                            level_analysis[
+                                "tail_contribution"
+                            ].mean()
+                        ),
+                        "mean_expected_shortfall": float(
+                            level_analysis[
+                                "expected_shortfall"
+                            ].mean()
+                        ),
+                        "mean_identification_residual": float(
+                            level_analysis[
+                                "var_es_identification_residual"
+                            ].mean()
+                        ),
+                        "sparse_expected_tail": bool(
+                            expected_count < 5.0
+                        ),
+                        "sparse_observed_tail": bool(
+                            observed_count < 5
+                        ),
+                    }
+                )
+
+    result = pd.DataFrame.from_records(records).set_index(
+        [
+            "period_id",
+            "model",
+            "confidence_level",
+        ]
+    )
+
+    return result
 
 
 

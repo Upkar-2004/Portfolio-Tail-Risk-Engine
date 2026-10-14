@@ -345,3 +345,51 @@ industry-recognizable view of how recent performance changes through time.
   derived specifically for 99% coverage and a 250-observation sample.
 - Overlapping windows are treated as a descriptive monitoring sequence, not
   as independent hypothesis tests.
+
+## 2026-10-14: Fixed the initial subperiod-analysis protocol
+
+**Status:** Accepted
+
+### Context
+
+Full-sample statistics can conceal periods of offsetting conservative and
+anti-conservative VaR behavior, changing tail-loss severity, or unstable model
+rankings. The subperiod design must nevertheless be fixed before calculating
+its tables so dates and inferential claims are not selected in response to the
+already visible exception paths.
+
+### Decision
+
+- Keep every completed full-sample test and multiple-testing family unchanged
+  and primary.
+- Define calendar periods as every year from 2012 through 2025 intersected
+  with the common aligned forecast dates of all three models.
+- Retain exact annual observation counts and flag, rather than discard, a year
+  containing fewer than 90% of the largest annual common observation count.
+- Define the initial external stress case by the NBER business-cycle
+  chronology. Include common forecast sessions in every peak-through-trough
+  calendar month intersecting the sample; this currently selects February
+  through April 2020.
+- Do not add hand-selected event windows after inspecting exception paths.
+- Recompute descriptive coverage, exact binomial intervals, tail severity,
+  mean joint-calibration residuals, mean quantile loss, mean FZ0 score, and
+  within-period ranks on identical dates and realized losses.
+- Flag expected or observed tail counts below five. Preserve undefined
+  conditional severity values as missing when no exception occurs.
+- Do not produce subperiod hypothesis-test p-values or rejection decisions in
+  the initial report. Pointwise intervals are non-simultaneous, and no new
+  Holm family is created.
+- Preserve versioned, non-overwriting reports with source and output
+  checksums, explicit period definitions, and a
+  `descriptive_secondary_analysis` classification.
+
+### Consequences
+
+- Calendar results reveal time variation without using model outcomes to set
+  period boundaries.
+- The NBER episode is reproducible and externally defined but too short for
+  strong rare-event inference, especially at 99% confidence.
+- Subperiod findings provide context and diagnostic warnings, not replacements
+  for the primary full-sample conclusions.
+- Formal regime inference or additional market-stress definitions require a
+  new precommitment before their results are calculated.

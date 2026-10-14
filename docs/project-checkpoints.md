@@ -6,8 +6,9 @@ This checklist tracks the research, learning, and engineering progress of the Po
 
 **Current phase:** Statistical evaluation and uncertainty quantification
 
-**Next checkpoint:** Define and implement the predeclared subperiod analysis
-without changing the completed full-sample comparison protocol.
+**Next checkpoint:** Implement and validate the predeclared descriptive
+subperiod coverage table without changing the completed full-sample
+comparison protocol.
 
 ## 1. Project definition and research scope
 
@@ -224,6 +225,22 @@ without changing the completed full-sample comparison protocol.
   `ec0c52e070ec41b6bf0f50ab1846da9496dfc2279286ace6711e1d81296df53e`.
 - [x] Create and visually verify the professional three-panel traffic-light
   timeline figure with shared axes, direct zone labels, and threshold lines.
+- [x] Predeclare the calendar-year and externally dated NBER subperiod rules,
+  sparse-tail warnings, descriptive statistics, inferential status, and
+  reproducible output design.
+- [x] Implement and test common-date calendar-year and NBER-period
+  construction.
+- [x] Implement and test the descriptive subperiod VaR coverage table with
+  exact intervals and sparse-tail warnings.
+- [x] Implement and test the descriptive subperiod tail-severity table,
+  including missing zero-tail statistics and sparse-tail warnings.
+- [x] Implement and test the descriptive subperiod joint-calibration table
+  without adding subperiod HAC inference or hypothesis decisions.
+- [ ] Implement and test the descriptive subperiod predictive-accuracy table.
+- [ ] Add and test a checksum-verified subperiod report command.
+- [ ] Generate and verify the baseline subperiod tables before designing the
+  associated figures.
+- [ ] Create and visually verify the professional subperiod figures.
 
 ## 13. C++ numerical simulation core
 

@@ -19,10 +19,14 @@ from tailrisk.evaluation import (
     calculate_var_quantile_losses,
     classify_basel_traffic_light,
     count_var_exceedance_transitions,
+    create_subperiod_definitions,
     evaluate_models_basel_traffic_light,
     evaluate_models_fz0_loss,
     evaluate_models_diebold_mariano,
+    evaluate_models_subperiod_es_tail_severity,
+    evaluate_models_subperiod_var_es_identification,
     evaluate_models_var_quantile_loss,
+    evaluate_models_subperiod_var_coverage,
     evaluate_models_var_es_identification,
     evaluate_models_var_coverage,
     evaluate_var_coverage,
@@ -36,6 +40,920 @@ from tailrisk.evaluation import (
     summarize_var_es_identification,
     summarize_var_quantile_loss,
 )
+
+
+def _create_subperiod_forecasts(
+) -> dict[str, pd.DataFrame]:
+    """Create aligned forecasts spanning all predeclared years."""
+
+    dates: list[pd.Timestamp] = []
+
+    for year in range(2012, 2026):
+        dates.extend(
+            pd.to_datetime(
+                [
+                    f"{year}-01-03",
+                    f"{year}-02-03",
+                    f"{year}-03-02",
+                    f"{year}-04-30",
+                    f"{year}-06-15",
+                    f"{year}-12-30",
+                ]
+            ).tolist()
+        )
+    dates = sorted(set(dates))
+    confidence_levels = [0.95, 0.99]
+    index = pd.MultiIndex.from_product(
+        [
+            dates,
+            confidence_levels,
+        ],
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+    date_losses = {
+        date: position / 10_000.0
+        for position, date in enumerate(dates)
+    }
+    realized_losses = [
+        date_losses[forecast_date]
+        for forecast_date, _ in index
+    ]
+    forecasts = pd.DataFrame(
+        {
+            "realized_loss": realized_losses,
+        },
+        index=index,
+    )
+
+    return {
+        "model_a": forecasts.copy(),
+        "model_b": forecasts.copy(),
+        "model_c": forecasts.copy(),
+    }
+
+
+def test_create_subperiod_definitions_builds_calendar_and_nber_rows(
+) -> None:
+    """Definitions contain every calendar year and the NBER episode."""
+
+    definitions = create_subperiod_definitions(
+        forecasts_by_model=_create_subperiod_forecasts(),
+    )
+
+    assert list(definitions.index) == [
+        *[
+            f"calendar_{year}"
+            for year in range(2012, 2026)
+        ],
+        "nber_recession_2020",
+    ]
+    assert definitions.loc[
+        "calendar_2020",
+        "period_type",
+    ] == "calendar_year"
+    assert definitions.loc[
+        "nber_recession_2020",
+        "period_type",
+    ] == "nber_recession"
+
+
+def test_create_subperiod_definitions_preserves_requested_and_realized_dates(
+) -> None:
+    """Requested boundaries remain distinct from observed sessions."""
+
+    definitions = create_subperiod_definitions(
+        forecasts_by_model=_create_subperiod_forecasts(),
+    )
+    calendar = definitions.loc["calendar_2019"]
+    recession = definitions.loc[
+        "nber_recession_2020"
+    ]
+
+    assert calendar["requested_start_date"] == pd.Timestamp(
+        "2019-01-01"
+    )
+    assert calendar["first_forecast_date"] == pd.Timestamp(
+        "2019-01-03"
+    )
+    assert calendar["requested_end_date"] == pd.Timestamp(
+        "2019-12-31"
+    )
+    assert calendar["last_forecast_date"] == pd.Timestamp(
+        "2019-12-30"
+    )
+    assert recession["requested_start_date"] == pd.Timestamp(
+        "2020-02-01"
+    )
+    assert recession["requested_end_date"] == pd.Timestamp(
+        "2020-04-30"
+    )
+    assert recession["first_forecast_date"] == pd.Timestamp(
+        "2020-02-03"
+    )
+    assert recession["last_forecast_date"] == pd.Timestamp(
+        "2020-04-30"
+    )
+    assert recession["observation_count"] == 3
+
+
+def test_create_subperiod_definitions_flags_short_calendar_year(
+) -> None:
+    """A year below 90% of the maximum annual count is marked partial."""
+
+    forecasts_by_model = _create_subperiod_forecasts()
+
+    for model_name, forecasts in forecasts_by_model.items():
+        retained_rows = (
+            forecasts.index.get_level_values(
+                "forecast_date"
+            )
+            != pd.Timestamp("2012-06-15")
+        )
+        forecasts_by_model[model_name] = forecasts.loc[
+            retained_rows
+        ]
+
+    definitions = create_subperiod_definitions(
+        forecasts_by_model=forecasts_by_model,
+    )
+
+    assert bool(
+        definitions.loc["calendar_2012", "is_partial"]
+    )
+    assert not bool(
+        definitions.loc["calendar_2019", "is_partial"]
+    )
+
+
+def test_create_subperiod_definitions_rejects_misaligned_models(
+) -> None:
+    """Models with different ordered forecast indexes are rejected."""
+
+    forecasts_by_model = _create_subperiod_forecasts()
+    model_c = forecasts_by_model["model_c"]
+    last_date = model_c.index.get_level_values(
+        "forecast_date"
+    )[-1]
+    forecasts_by_model["model_c"] = model_c.loc[
+        model_c.index.get_level_values("forecast_date")
+        != last_date
+    ]
+
+    with pytest.raises(
+        ValueError,
+        match="same ordered forecast index",
+    ):
+        create_subperiod_definitions(
+            forecasts_by_model=forecasts_by_model,
+        )
+
+
+def test_create_subperiod_definitions_rejects_different_losses(
+) -> None:
+    """Models with different realized losses are rejected."""
+
+    forecasts_by_model = _create_subperiod_forecasts()
+    forecasts_by_model["model_b"].iloc[
+        0,
+        forecasts_by_model["model_b"].columns.get_loc(
+            "realized_loss"
+        ),
+    ] += 0.01
+    forecasts_by_model["model_b"].iloc[
+        1,
+        forecasts_by_model["model_b"].columns.get_loc(
+            "realized_loss"
+        ),
+    ] += 0.01
+
+    with pytest.raises(
+        ValueError,
+        match="identical realized losses",
+    ):
+        create_subperiod_definitions(
+            forecasts_by_model=forecasts_by_model,
+        )
+
+
+def test_create_subperiod_definitions_rejects_inconsistent_date_loss(
+) -> None:
+    """Losses must agree across confidence levels on each date."""
+
+    forecasts_by_model = _create_subperiod_forecasts()
+    forecasts_by_model["model_a"].iloc[
+        0,
+        forecasts_by_model["model_a"].columns.get_loc(
+            "realized_loss"
+        ),
+    ] += 0.01
+
+    with pytest.raises(
+        ValueError,
+        match="identical across confidence levels",
+    ):
+        create_subperiod_definitions(
+            forecasts_by_model=forecasts_by_model,
+        )
+
+
+def test_create_subperiod_definitions_rejects_missing_calendar_year(
+) -> None:
+    """Every predeclared calendar year must have common forecasts."""
+
+    forecasts_by_model = _create_subperiod_forecasts()
+
+    for model_name, forecasts in forecasts_by_model.items():
+        year_mask = (
+            forecasts.index.get_level_values(
+                "forecast_date"
+            ).year
+            != 2017
+        )
+        forecasts_by_model[model_name] = forecasts.loc[
+            year_mask
+        ]
+
+    with pytest.raises(
+        ValueError,
+        match="cover every calendar year",
+    ):
+        create_subperiod_definitions(
+            forecasts_by_model=forecasts_by_model,
+        )
+
+
+def _create_subperiod_coverage_forecasts(
+) -> dict[str, pd.DataFrame]:
+    """Create aligned forecasts with controlled subperiod exceptions."""
+
+    dates: list[pd.Timestamp] = []
+
+    for year in range(2012, 2026):
+        dates.extend(
+            pd.bdate_range(
+                start=f"{year}-01-02",
+                periods=100,
+            ).tolist()
+        )
+
+    dates = sorted(set(dates))
+    index = pd.MultiIndex.from_product(
+        [
+            dates,
+            [0.95, 0.99],
+        ],
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+    base = pd.DataFrame(
+        {
+            "realized_loss": 1.0,
+            "value_at_risk": 2.0,
+            "expected_shortfall": 3.0,
+        },
+        index=index,
+    )
+    forecasts_by_model = {
+        "model_a": base.copy(),
+        "model_b": base.copy(),
+        "model_c": base.copy(),
+    }
+    calendar_2012_dates = pd.DatetimeIndex(
+        [
+            date
+            for date in dates
+            if date.year == 2012
+        ]
+    )
+
+    for model_name, exception_count in (
+        ("model_a", 5),
+        ("model_b", 10),
+        ("model_c", 0),
+    ):
+        forecasts = forecasts_by_model[model_name]
+        exception_dates = calendar_2012_dates[
+            :exception_count
+        ]
+        forecasts.loc[
+            pd.IndexSlice[exception_dates, 0.95],
+            "value_at_risk",
+        ] = 0.5
+        forecasts.loc[
+            (
+                calendar_2012_dates[0],
+                0.99,
+            ),
+            "value_at_risk",
+        ] = 1.0
+
+        if model_name == "model_a":
+            forecasts.loc[
+                (
+                    calendar_2012_dates[1],
+                    0.99,
+                ),
+                "value_at_risk",
+            ] = 0.5
+
+        forecasts["var_exceedance"] = (
+            forecasts["realized_loss"]
+            > forecasts["value_at_risk"]
+        )
+
+    return forecasts_by_model
+
+
+def test_subperiod_var_coverage_matches_manual_calendar_example(
+) -> None:
+    """Calendar coverage counts, rates, gaps, and means are correct."""
+
+    result = evaluate_models_subperiod_var_coverage(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+    row = result.loc[
+        (
+            "calendar_2012",
+            "model_a",
+            0.95,
+        )
+    ]
+
+    assert row["observation_count"] == 100
+    assert not bool(row["is_partial"])
+    assert row["nominal_exceedance_rate"] == pytest.approx(
+        0.05
+    )
+    assert row["expected_exceedance_count"] == pytest.approx(
+        5.0
+    )
+    assert row["observed_exceedance_count"] == 5
+    assert row["observed_exceedance_rate"] == pytest.approx(
+        0.05
+    )
+    assert row[
+        "observed_minus_expected_count"
+    ] == pytest.approx(0.0)
+    assert row[
+        "observed_minus_expected_rate"
+    ] == pytest.approx(0.0)
+    assert row["mean_value_at_risk"] == pytest.approx(
+        1.925
+    )
+    assert row["mean_expected_shortfall"] == pytest.approx(
+        3.0
+    )
+    assert not bool(row["sparse_expected_tail"])
+    assert not bool(row["sparse_observed_tail"])
+
+
+def test_subperiod_var_coverage_uses_strict_exception_rule(
+) -> None:
+    """Loss equal to VaR remains outside the subperiod exception count."""
+
+    result = evaluate_models_subperiod_var_coverage(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+    row = result.loc[
+        (
+            "calendar_2012",
+            "model_a",
+            0.99,
+        )
+    ]
+
+    assert row["observed_exceedance_count"] == 1
+    assert row["expected_exceedance_count"] == pytest.approx(
+        1.0
+    )
+    assert bool(row["sparse_expected_tail"])
+    assert bool(row["sparse_observed_tail"])
+
+
+def test_subperiod_var_coverage_reuses_exact_binomial_interval(
+) -> None:
+    """Subperiod bounds equal the established exact-binomial result."""
+
+    result = evaluate_models_subperiod_var_coverage(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+        interval_confidence_level=0.90,
+    )
+    row = result.loc[
+        (
+            "calendar_2012",
+            "model_a",
+            0.95,
+        )
+    ]
+    expected = calculate_exact_binomial_interval(
+        exceedance_count=5,
+        observation_count=100,
+        interval_confidence_level=0.90,
+    )
+
+    assert row[
+        "interval_confidence_level"
+    ] == pytest.approx(0.90)
+    assert row[
+        "exact_interval_lower_bound"
+    ] == pytest.approx(expected.lower_bound)
+    assert row[
+        "exact_interval_upper_bound"
+    ] == pytest.approx(expected.upper_bound)
+
+
+def test_subperiod_var_coverage_contains_only_descriptive_columns(
+) -> None:
+    """The initial table contains no test p-values or decisions."""
+
+    result = evaluate_models_subperiod_var_coverage(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+
+    assert len(result) == 15 * 3 * 2
+    assert list(result.index.names) == [
+        "period_id",
+        "model",
+        "confidence_level",
+    ]
+    assert not any(
+        "p_value" in column
+        or "reject" in column
+        or "test_statistic" in column
+        for column in result.columns
+    )
+
+
+def test_subperiod_var_coverage_retains_overlapping_nber_period(
+) -> None:
+    """The NBER episode is reported alongside its containing year."""
+
+    result = evaluate_models_subperiod_var_coverage(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+    calendar = result.loc[
+        (
+            "calendar_2020",
+            "model_a",
+            0.95,
+        )
+    ]
+    recession = result.loc[
+        (
+            "nber_recession_2020",
+            "model_a",
+            0.95,
+        )
+    ]
+
+    assert calendar["observation_count"] == 100
+    assert 0 < recession["observation_count"] < 100
+    assert recession["period_type"] == "nber_recession"
+    assert recession["first_forecast_date"] >= pd.Timestamp(
+        "2020-02-01"
+    )
+    assert recession["last_forecast_date"] <= pd.Timestamp(
+        "2020-04-30"
+    )
+
+
+def test_subperiod_var_coverage_rejects_incorrect_indicator(
+) -> None:
+    """Stored period exceptions must match strict loss-versus-VaR values."""
+
+    forecasts_by_model = (
+        _create_subperiod_coverage_forecasts()
+    )
+    forecasts_by_model["model_a"].iloc[
+        0,
+        forecasts_by_model["model_a"].columns.get_loc(
+            "var_exceedance"
+        ),
+    ] = False
+
+    with pytest.raises(
+        ValueError,
+        match="must agree",
+    ):
+        evaluate_models_subperiod_var_coverage(
+            forecasts_by_model=forecasts_by_model,
+        )
+
+
+def test_subperiod_var_coverage_rejects_es_below_var(
+) -> None:
+    """Subperiod Expected Shortfall must not be smaller than VaR."""
+
+    forecasts_by_model = (
+        _create_subperiod_coverage_forecasts()
+    )
+    forecasts_by_model["model_a"].iloc[
+        0,
+        forecasts_by_model["model_a"].columns.get_loc(
+            "expected_shortfall"
+        ),
+    ] = 0.25
+
+    with pytest.raises(
+        ValueError,
+        match="at least as large as VaR",
+    ):
+        evaluate_models_subperiod_var_coverage(
+            forecasts_by_model=forecasts_by_model,
+        )
+
+
+def test_subperiod_tail_severity_matches_manual_example(
+) -> None:
+    """Conditional severity statistics match controlled exceptions."""
+
+    result = evaluate_models_subperiod_es_tail_severity(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+    row = result.loc[
+        (
+            "calendar_2012",
+            "model_a",
+            0.95,
+        )
+    ]
+
+    assert row["observation_count"] == 100
+    assert row["expected_exceedance_count"] == pytest.approx(
+        5.0
+    )
+    assert row["var_exceedance_count"] == 5
+    assert row["mean_exceedance_loss"] == pytest.approx(
+        1.0
+    )
+    assert row[
+        "mean_var_on_exceedance_days"
+    ] == pytest.approx(0.5)
+    assert row[
+        "mean_es_on_exceedance_days"
+    ] == pytest.approx(3.0)
+    assert row["mean_var_excess"] == pytest.approx(0.5)
+    assert row["median_var_excess"] == pytest.approx(0.5)
+    assert row["maximum_var_excess"] == pytest.approx(0.5)
+    assert row["mean_es_gap"] == pytest.approx(-2.0)
+    assert not bool(row["sparse_expected_tail"])
+    assert not bool(row["sparse_observed_tail"])
+
+
+def test_subperiod_tail_severity_preserves_sparse_finite_result(
+) -> None:
+    """One observed tail loss is retained and marked as sparse."""
+
+    result = evaluate_models_subperiod_es_tail_severity(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+    row = result.loc[
+        (
+            "calendar_2012",
+            "model_a",
+            0.99,
+        )
+    ]
+
+    assert row["var_exceedance_count"] == 1
+    assert row["mean_exceedance_loss"] == pytest.approx(
+        1.0
+    )
+    assert row["mean_var_excess"] == pytest.approx(0.5)
+    assert row["mean_es_gap"] == pytest.approx(-2.0)
+    assert bool(row["sparse_expected_tail"])
+    assert bool(row["sparse_observed_tail"])
+
+
+def test_subperiod_tail_severity_uses_missing_values_for_empty_tail(
+) -> None:
+    """A period with no exceptions has missing conditional severity."""
+
+    result = evaluate_models_subperiod_es_tail_severity(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+    row = result.loc[
+        (
+            "calendar_2012",
+            "model_c",
+            0.95,
+        )
+    ]
+    conditional_columns = [
+        "mean_exceedance_loss",
+        "mean_var_on_exceedance_days",
+        "mean_es_on_exceedance_days",
+        "mean_var_excess",
+        "median_var_excess",
+        "maximum_var_excess",
+        "mean_es_gap",
+    ]
+
+    assert row["var_exceedance_count"] == 0
+    assert row[conditional_columns].isna().all()
+    assert bool(row["sparse_observed_tail"])
+
+
+def test_subperiod_tail_severity_contains_only_descriptive_columns(
+) -> None:
+    """The tail table contains every period and no inferential output."""
+
+    result = evaluate_models_subperiod_es_tail_severity(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+
+    assert len(result) == 15 * 3 * 2
+    assert list(result.index.names) == [
+        "period_id",
+        "model",
+        "confidence_level",
+    ]
+    assert not any(
+        "p_value" in column
+        or "reject" in column
+        or "test_statistic" in column
+        for column in result.columns
+    )
+
+
+def test_subperiod_tail_severity_retains_nber_case_study(
+) -> None:
+    """The NBER episode receives its own descriptive severity rows."""
+
+    result = evaluate_models_subperiod_es_tail_severity(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+    recession = result.loc[
+        (
+            "nber_recession_2020",
+            "model_a",
+            0.99,
+        )
+    ]
+
+    assert recession["period_type"] == "nber_recession"
+    assert 0 < recession["observation_count"] < 100
+    assert bool(recession["sparse_expected_tail"])
+
+
+def test_subperiod_tail_severity_rejects_incorrect_indicator(
+) -> None:
+    """Tail rows reject exception indicators inconsistent with VaR."""
+
+    forecasts_by_model = (
+        _create_subperiod_coverage_forecasts()
+    )
+    forecasts_by_model["model_a"].iloc[
+        0,
+        forecasts_by_model["model_a"].columns.get_loc(
+            "var_exceedance"
+        ),
+    ] = False
+
+    with pytest.raises(
+        ValueError,
+        match="must agree",
+    ):
+        evaluate_models_subperiod_es_tail_severity(
+            forecasts_by_model=forecasts_by_model,
+        )
+
+
+def test_subperiod_tail_severity_rejects_es_below_var(
+) -> None:
+    """Tail rows preserve the established ES-at-least-VaR contract."""
+
+    forecasts_by_model = (
+        _create_subperiod_coverage_forecasts()
+    )
+    forecasts_by_model["model_a"].iloc[
+        0,
+        forecasts_by_model["model_a"].columns.get_loc(
+            "expected_shortfall"
+        ),
+    ] = 0.25
+
+    with pytest.raises(
+        ValueError,
+        match="at least as large as VaR",
+    ):
+        evaluate_models_subperiod_es_tail_severity(
+            forecasts_by_model=forecasts_by_model,
+        )
+
+
+def test_subperiod_joint_calibration_matches_manual_example(
+) -> None:
+    """Mean tail contribution and residual match a controlled period."""
+
+    result = evaluate_models_subperiod_var_es_identification(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+    row = result.loc[
+        (
+            "calendar_2012",
+            "model_a",
+            0.95,
+        )
+    ]
+
+    assert row["observation_count"] == 100
+    assert row["expected_exceedance_count"] == pytest.approx(
+        5.0
+    )
+    assert row["var_exceedance_count"] == 5
+    assert row["mean_tail_contribution"] == pytest.approx(
+        2.425
+    )
+    assert row["mean_expected_shortfall"] == pytest.approx(
+        3.0
+    )
+    assert row[
+        "mean_identification_residual"
+    ] == pytest.approx(-0.575)
+    assert not bool(row["sparse_expected_tail"])
+    assert not bool(row["sparse_observed_tail"])
+
+
+def test_subperiod_joint_calibration_uses_every_session(
+) -> None:
+    """Joint residuals remain defined when no VaR exception occurs."""
+
+    result = evaluate_models_subperiod_var_es_identification(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+    row = result.loc[
+        (
+            "calendar_2012",
+            "model_c",
+            0.95,
+        )
+    ]
+
+    assert row["var_exceedance_count"] == 0
+    assert row["mean_tail_contribution"] == pytest.approx(
+        2.0
+    )
+    assert row["mean_expected_shortfall"] == pytest.approx(
+        3.0
+    )
+    assert row[
+        "mean_identification_residual"
+    ] == pytest.approx(-1.0)
+    assert bool(row["sparse_observed_tail"])
+
+
+def test_subperiod_joint_calibration_flags_sparse_tail(
+) -> None:
+    """Rare expected and observed tails retain both warning flags."""
+
+    result = evaluate_models_subperiod_var_es_identification(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+    row = result.loc[
+        (
+            "calendar_2012",
+            "model_a",
+            0.99,
+        )
+    ]
+
+    assert row["expected_exceedance_count"] == pytest.approx(
+        1.0
+    )
+    assert row["var_exceedance_count"] == 1
+    assert row["mean_tail_contribution"] == pytest.approx(
+        2.475
+    )
+    assert row[
+        "mean_identification_residual"
+    ] == pytest.approx(-0.525)
+    assert bool(row["sparse_expected_tail"])
+    assert bool(row["sparse_observed_tail"])
+
+
+def test_subperiod_joint_calibration_is_descriptive_only(
+) -> None:
+    """The joint table contains all periods and no inferential fields."""
+
+    result = evaluate_models_subperiod_var_es_identification(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+
+    assert len(result) == 15 * 3 * 2
+    assert list(result.index.names) == [
+        "period_id",
+        "model",
+        "confidence_level",
+    ]
+    assert not any(
+        "hac" in column
+        or "p_value" in column
+        or "reject" in column
+        or "test_statistic" in column
+        for column in result.columns
+    )
+
+
+def test_subperiod_joint_calibration_retains_nber_case_study(
+) -> None:
+    """The NBER episode receives descriptive joint-calibration rows."""
+
+    result = evaluate_models_subperiod_var_es_identification(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+    recession = result.loc[
+        (
+            "nber_recession_2020",
+            "model_a",
+            0.99,
+        )
+    ]
+
+    assert recession["period_type"] == "nber_recession"
+    assert 0 < recession["observation_count"] < 100
+    assert bool(recession["sparse_expected_tail"])
+
+
+def test_subperiod_joint_calibration_rejects_incorrect_indicator(
+) -> None:
+    """Joint rows require indicators consistent with strict VaR breaches."""
+
+    forecasts_by_model = (
+        _create_subperiod_coverage_forecasts()
+    )
+    forecasts_by_model["model_a"].iloc[
+        0,
+        forecasts_by_model["model_a"].columns.get_loc(
+            "var_exceedance"
+        ),
+    ] = False
+
+    with pytest.raises(
+        ValueError,
+        match="must agree",
+    ):
+        evaluate_models_subperiod_var_es_identification(
+            forecasts_by_model=forecasts_by_model,
+        )
+
+
+def test_subperiod_joint_calibration_rejects_es_below_var(
+) -> None:
+    """Joint rows preserve the established ES-at-least-VaR contract."""
+
+    forecasts_by_model = (
+        _create_subperiod_coverage_forecasts()
+    )
+    forecasts_by_model["model_a"].iloc[
+        0,
+        forecasts_by_model["model_a"].columns.get_loc(
+            "expected_shortfall"
+        ),
+    ] = 0.25
+
+    with pytest.raises(
+        ValueError,
+        match="at least as large as VaR",
+    ):
+        evaluate_models_subperiod_var_es_identification(
+            forecasts_by_model=forecasts_by_model,
+        )
 
 
 def _create_comparison_forecasts(
