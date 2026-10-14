@@ -230,3 +230,86 @@ effective amount of information and produce misleading rejection decisions.
   not proof that the model is correct.
 - The bandwidth remains visible and reproducible, and alternative bandwidths
   can be examined later without changing the baseline rule.
+
+## 2026-10-13: Fixed the VaR and joint VaR-ES scoring conventions
+
+**Status:** Accepted
+
+### Context
+
+Formal model ranking requires scoring rules that are consistent for the
+forecasted statistical targets. VaR can be scored with quantile loss, whereas
+Expected Shortfall must be scored jointly with VaR. Published FZ0 formulas are
+usually written for negative returns and a small lower-tail probability, while
+this project stores positive portfolio losses and high confidence levels.
+
+### Decision
+
+- Use standard quantile loss for VaR and rank models by mean score separately
+  at each confidence level, with lower scores preferred.
+- Use the canonical return-domain FZ0 definition as the literature reference
+  and explicitly transform it with $L=-Y$, $q=-v$, $s=-e$, and
+  $\alpha=1-\beta$ before implementation.
+- In the project's positive-loss convention, calculate
+  $\mathbf{1}\{L>q\}(L-q)/[(1-\alpha)s]+q/s+\log(s)-1$.
+- Reuse the strict project VaR exceedance rule. Equality produces zero tail
+  excess, so it is numerically equivalent to the weak inequality in the
+  canonical score.
+- Require finite forecasts, $s\ge q$, and strictly positive Expected Shortfall
+  for every FZ0-scored row.
+- Compare models only on identical ordered forecast rows, identical realized
+  losses, the same confidence level, and the same loss units.
+- Treat sample mean-score rankings as descriptive until pairwise
+  Diebold-Mariano tests with dependence-robust uncertainty are applied.
+
+### Consequences
+
+- The implementation remains mathematically equivalent to the published FZ0
+  score while matching the engine's existing loss-sign convention.
+- FZ0 values may be negative; only lower-versus-higher scores and score
+  differences carry ranking information.
+- Changing common units adds a common constant to FZ0 scores but leaves model
+  rankings and pairwise score differences unchanged.
+- A joint-score difference cannot be attributed to Expected Shortfall alone
+  when VaR is also misspecified.
+
+## 2026-10-13: Fixed the pairwise Diebold-Mariano comparison protocol
+
+**Status:** Accepted
+
+### Context
+
+Mean quantile-loss and FZ0 rankings show which model scored best in the
+observed sample but do not establish whether the difference is larger than
+sampling variation. Daily score differences can also be serially dependent
+because market conditions and forecast errors cluster through time.
+
+### Decision
+
+- Define every ordered loss differential as model A's daily score minus model
+  B's daily score, so a negative mean favors model A and a positive mean favors
+  model B.
+- Test equal expected predictive accuracy with a two-sided, asymptotic
+  Diebold-Mariano statistic.
+- Estimate the mean differential's uncertainty with the existing scalar
+  Newey-West HAC engine and its deterministic default bandwidth, recording
+  that bandwidth in every result.
+- Require identical ordered dates, confidence levels, and realized losses
+  before comparing two forecasts.
+- Compare all three model pairs at each of the three confidence levels.
+- Apply Holm adjustment separately to the nine VaR quantile-loss comparisons
+  and the nine joint VaR-ES FZ0 comparisons. Keep both families separate from
+  calibration tests.
+- Use the large-sample normal reference distribution for the baseline rather
+  than the Harvey-Leybourne-Newbold small-sample correction.
+
+### Consequences
+
+- A descriptive ranking becomes a formal statement about whether a model's
+  expected score is detectably lower than another model's expected score.
+- The p-value accounts for heteroskedasticity and short-range serial dependence
+  in the score differential.
+- Statistical significance does not establish correct calibration; it only
+  distinguishes the two models under the chosen scoring rule.
+- Direction remains auditable because every result records the ordered model
+  names and the signed mean differential.

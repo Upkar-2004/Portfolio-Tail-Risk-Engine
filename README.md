@@ -134,3 +134,30 @@ Each run saves a versioned `var_es_joint_calibration.csv` and `metadata.json`
 under `data/evaluations/`. The metadata records the residual definition, HAC
 kernel and bandwidth rule, significance level, Holm family, source snapshots,
 and output checksum required to reproduce the report.
+
+## Pairwise predictive-accuracy evaluation
+
+Generate the formal model-comparison report from the three verified baseline
+backtests:
+
+```bash
+.venv/bin/python scripts/report_predictive_accuracy.py \
+  data/portfolio/20260825T162125895465Z_baseline_11_asset \
+  data/backtests/20261005T021450532620Z_baseline_11_asset_rolling_gaussian_monte_carlo \
+  data/backtests/20261006T151840866317Z_baseline_11_asset_ewma_gaussian_monte_carlo \
+  data/backtests/20261011T112940733142Z_baseline_11_asset_filtered_historical_simulation
+```
+
+The command checksum-verifies the source forecasts and their common portfolio
+lineage. It calculates daily VaR quantile loss and joint VaR-Expected-Shortfall
+FZ0 loss, then runs two-sided pairwise Diebold-Mariano tests with Newey-West
+HAC uncertainty for all three model pairs at all three confidence levels. A
+negative model-A-minus-model-B mean score difference favors model A; a positive
+difference favors model B.
+
+The resulting `predictive_accuracy.csv` contains 18 rows: nine quantile-loss
+comparisons and nine FZ0 comparisons. Holm adjustment is applied separately
+within those two nine-test families. The accompanying `metadata.json` records
+the score direction, null hypothesis, HAC kernel and bandwidth rule,
+significance level, separate Holm families, source snapshot checksums, and
+output checksum.

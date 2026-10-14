@@ -1075,12 +1075,431 @@ Jointly consistent VaR-ES scoring rules will remain separate and will be used
 for formal pairwise model comparison rather than mixed into this calibration
 test or the descriptive severity summary.
 
+### 8.6 Strictly consistent forecast scores
+
+Calibration tests ask whether a model satisfies a statistical requirement.
+Scoring rules answer a different question: which competing forecast is more
+accurate on the common sequence of realized outcomes? A score is called
+strictly consistent for a target when its expected value is uniquely minimized
+by forecasting the true target. Lower scores are better throughout this
+project.
+
+#### VaR quantile loss
+
+In the standard notation for an observation $y$, a proposed probability-$\tau$
+quantile $q$, and $0<\tau<1$, the quantile or pinball loss is
+
+```math
+Q_{\tau}(y,q)
+=
+\left(\tau-\mathbf{1}\{y<q\}\right)(y-q).
+```
+
+Equivalently,
+
+```math
+Q_{\tau}(y,q)
+=
+\begin{cases}
+\tau(y-q), & y>q,\\
+(1-\tau)(q-y), & y\le q.
+\end{cases}
+```
+
+The score is zero when $y=q$ and nonnegative otherwise. Its asymmetry is what
+makes the true $\tau$-quantile, rather than the mean or median, minimize
+expected score.
+
+This project models an upper-tail positive portfolio loss $L_t$ and uses the
+confidence level $\alpha$ directly. Therefore the project implementation is
+
+```math
+Q_{t,\alpha}
+=
+\begin{cases}
+\alpha(L_t-q_{t,\alpha}),
+& L_t>q_{t,\alpha},\\
+(1-\alpha)(q_{t,\alpha}-L_t),
+& L_t\le q_{t,\alpha}.
+\end{cases}
+```
+
+This is the standard quantile score applied to the project's loss variable;
+it is not a different statistical criterion. The strict project breach rule
+$L_t>q_{t,\alpha}$ is used in code. At equality, the forecast error and score
+are both zero, so choosing a strict or weak indicator does not change the
+numerical score.
+
+For model $m$, the descriptive mean score is
+
+```math
+\overline{Q}_{m,\alpha}
+=
+\frac{1}{T}
+\sum_{t=1}^{T}Q_{m,t,\alpha}.
+```
+
+Models are ranked from the smallest to the largest mean score separately at
+each confidence level. They must use identical ordered forecast rows and
+identical realized losses. Rankings across different confidence levels are not
+meaningful because the asymmetric weights differ. A lower sample mean is only
+a descriptive advantage until a formal loss-differential test is applied.
+
+#### Canonical FZ0 score for returns
+
+Expected Shortfall is not elicitable by itself: there is no strictly
+consistent one-dimensional score that identifies an ES forecast alone in the
+same way quantile loss identifies VaR
+([Gneiting, 2011](https://arxiv.org/abs/0912.0902)). Under suitable regularity
+conditions, however, the pair consisting of VaR and Expected Shortfall is
+jointly elicitable
+([Fissler and Ziegel, 2016](https://arxiv.org/abs/1503.08123)). The FZ0 score
+is a standard jointly consistent member of the Fissler-Ziegel class
+([Patton, Ziegel, and Chen, 2019](https://public.econ.duke.edu/~ap172/Patton_Ziegel_Chen_JoE_2019.pdf)).
+
+The published FZ0 formula is commonly written for a lower return tail. Let
+$Y_t$ be a return, let $\beta$ be a small left-tail probability such as 0.05,
+let $v_{t,\beta}<0$ be return VaR, and let $e_{t,\beta}<v_{t,\beta}<0$ be
+return Expected Shortfall. The canonical score is
+
+```math
+S^{\mathrm{FZ0}}
+(Y_t,v_{t,\beta},e_{t,\beta};\beta)
+=
+-\frac{
+\mathbf{1}\{Y_t\le v_{t,\beta}\}
+(v_{t,\beta}-Y_t)
+}{
+\beta e_{t,\beta}
+}
++
+\frac{v_{t,\beta}}{e_{t,\beta}}
++
+\log(-e_{t,\beta})
+-1.
+```
+
+This is the standard literature form. Its negative VaR and ES values reflect
+the convention that severe portfolio outcomes are negative returns.
+
+#### Conversion to the project's positive-loss convention
+
+The engine stores severe outcomes as positive losses. Define
+
+```math
+L_t=-Y_t,
+\qquad
+q_{t,\alpha}=-v_{t,\beta},
+\qquad
+s_{t,\alpha}=-e_{t,\beta},
+\qquad
+\alpha=1-\beta.
+```
+
+Then $s_{t,\alpha}\ge q_{t,\alpha}>0$, and the lower-return-tail event becomes
+the upper-loss-tail event:
+
+```math
+\mathbf{1}\{Y_t\le v_{t,\beta}\}
+=
+\mathbf{1}\{L_t\ge q_{t,\alpha}\}.
+```
+
+Substituting these identities into the canonical formula gives the project's
+positive-loss FZ0 score:
+
+```math
+S^{\mathrm{FZ0}}_{t,\alpha}
+=
+\frac{
+\mathbf{1}\{L_t>q_{t,\alpha}\}
+(L_t-q_{t,\alpha})
+}{
+(1-\alpha)s_{t,\alpha}
+}
++
+\frac{q_{t,\alpha}}{s_{t,\alpha}}
++
+\log(s_{t,\alpha})
+-1.
+```
+
+The implementation uses the existing strict VaR exceedance indicator. The
+canonical formula is often written with a weak inequality, but equality makes
+$L_t-q_{t,\alpha}=0$, so the two conventions produce the same score.
+
+The four parts have distinct roles:
+
+1. The first term penalizes loss beyond VaR and scales that excess by both the
+   nominal tail probability and the ES forecast.
+2. The ratio $q_{t,\alpha}/s_{t,\alpha}$ links the VaR and ES forecasts.
+3. The logarithm penalizes the overall ES scale and balances the incentive to
+   make ES arbitrarily large or small.
+4. The constant $-1$ is a normalization and does not affect model rankings.
+
+For example, let $\alpha=0.95$, $q=0.02$, and $s=0.03$. On a non-breach day,
+
+```math
+S^{\mathrm{FZ0}}
+=
+\frac{0.02}{0.03}
++\log(0.03)-1
+\approx -3.8399.
+```
+
+If the realized loss is $L=0.03$, the additional tail term is
+
+```math
+\frac{0.03-0.02}{(1-0.95)0.03}
+=
+6.6667,
+```
+
+so the breach-day score is approximately $2.8268$. FZ0 scores need not be
+positive; only their ordering and differences matter, and lower is better.
+
+The logarithm requires a strictly positive loss-domain Expected Shortfall.
+The implementation will therefore retain the existing finite and ES-at-least-
+VaR checks and additionally require $s_{t,\alpha}>0$ for every scored row.
+Changing all losses and forecasts from decimal units to percentage units adds
+the same constant to competing scores. Pairwise score differences, rankings,
+and Diebold-Mariano conclusions are therefore unchanged as long as every model
+uses the same units.
+
+For model $m$, the mean joint score is
+
+```math
+\overline{S}^{\mathrm{FZ0}}_{m,\alpha}
+=
+\frac{1}{T}
+\sum_{t=1}^{T}
+S^{\mathrm{FZ0}}_{m,t,\alpha}.
+```
+
+Within confidence level $\alpha$, the descriptive FZ0 rank is
+
+```math
+r^{\mathrm{FZ0}}_{m,\alpha}
+=
+1
++
+\sum_{j}
+\mathbf{1}
+\left\{
+\overline{S}^{\mathrm{FZ0}}_{j,\alpha}
+<
+\overline{S}^{\mathrm{FZ0}}_{m,\alpha}
+\right\}.
+```
+
+Rank one therefore denotes the smallest mean FZ0 loss. Models with exactly
+equal means share the smallest applicable rank. The implementation calculates
+these ranks only after verifying identical ordered forecast indexes and
+identical realized losses. As with quantile loss, scores from different
+confidence levels are not placed in the same ranking.
+
+The FZ0 score evaluates VaR and Expected Shortfall as a pair. A worse score
+cannot be attributed to ES alone when the corresponding VaR is also
+misspecified. Formal pairwise comparisons will use the complete daily score
+differential rather than only the difference between mean scores.
+
+### 8.7 Pairwise Diebold-Mariano predictive-accuracy tests
+
+Mean-score rankings describe which model performed better in the observed
+sample, but a small ranking difference may be ordinary sampling noise. The
+Diebold-Mariano, or DM, test asks whether two models have equal expected
+predictive accuracy under a chosen loss function. The original framework
+allows general loss functions and permits the resulting loss differential to
+be serially correlated and non-Gaussian
+([Diebold and Mariano, 1995](https://doi.org/10.1080/07350015.1995.10524599)).
+
+Fix one confidence level $\alpha$ and one score family $G$. In this project,
+$G$ is either VaR quantile loss or the joint VaR-ES FZ0 loss. For an ordered
+pair of models $A$ and $B$, define the daily score differential as
+
+```math
+d^{G}_{A,B,t}
+=
+S^{G}_{A,t,\alpha}
+-
+S^{G}_{B,t,\alpha}.
+```
+
+Because lower scores are better, the ordering has a direct interpretation:
+
+- $d^{G}_{A,B,t}<0$ means model $A$ scored better on date $t$;
+- $d^{G}_{A,B,t}>0$ means model $B$ scored better on date $t$;
+- reversing the model order reverses the sign but not the two-sided p-value.
+
+The sample mean score differential is
+
+```math
+\overline d^{G}_{A,B}
+=
+\frac{1}{T}
+\sum_{t=1}^{T}d^{G}_{A,B,t}.
+```
+
+The two-sided hypotheses are
+
+```math
+H_0:
+\mathbb{E}\!\left[d^{G}_{A,B,t}\right]=0,
+\qquad
+H_1:
+\mathbb{E}\!\left[d^{G}_{A,B,t}\right]\ne0.
+```
+
+Thus, the null says that the two models have equal expected predictive
+accuracy under the selected score. It does **not** say that either model is
+correctly calibrated. Two misspecified models can have equal predictive
+accuracy, and one misspecified model can score significantly better than
+another.
+
+#### Dependence-robust uncertainty
+
+Nearby daily score differences can be related because market volatility
+clusters through time. Treating every $d_t$ as independent can understate the
+uncertainty in $\overline d$. The project therefore estimates the long-run
+variance with the Newey-West heteroskedasticity-and-autocorrelation-consistent
+estimator
+([Newey and West, 1987](https://doi.org/10.2307/1913610)). First define
+
+```math
+\widetilde d_t
+=
+d_t-\overline d,
+```
+
+and estimate the lag-$k$ autocovariance by
+
+```math
+\widehat\gamma_k
+=
+\frac{1}{T}
+\sum_{t=k+1}^{T}
+\widetilde d_t\widetilde d_{t-k}.
+```
+
+With Bartlett weight
+
+```math
+w_k
+=
+1-\frac{k}{K+1},
+```
+
+the estimated long-run variance is
+
+```math
+\widehat\Omega_d
+=
+\widehat\gamma_0
++
+2\sum_{k=1}^{K}w_k\widehat\gamma_k.
+```
+
+The HAC standard error of the mean and the DM statistic are
+
+```math
+\operatorname{SE}_{\mathrm{HAC}}(\overline d)
+=
+\sqrt{\frac{\widehat\Omega_d}{T}},
+\qquad
+DM_{A,B}
+=
+\frac{\overline d_{A,B}}
+{\operatorname{SE}_{\mathrm{HAC}}(\overline d_{A,B})}.
+```
+
+Under the null and the large-sample approximation, the statistic is compared
+with a standard normal distribution. The two-sided p-value is
+
+```math
+p_{A,B}
+=
+2\left[1-\Phi\!\left(\left|DM_{A,B}\right|\right)\right].
+```
+
+The HAC calculation changes the estimated uncertainty, not the observed mean
+score difference. The implementation reuses the project's tested scalar
+Newey-West mean-test engine and its deterministic default bandwidth
+
+```math
+K
+=
+\min\left\{
+T-1,
+\left\lfloor
+4\left(\frac{T}{100}\right)^{2/9}
+\right\rfloor
+\right\}.
+```
+
+The chosen bandwidth is saved with every result. This makes the baseline
+reproducible and allows later bandwidth sensitivity checks.
+
+#### Project comparisons and interpretation
+
+At each confidence level, the project compares the three unordered model
+pairs:
+
+1. Rolling Gaussian versus EWMA Gaussian;
+2. Rolling Gaussian versus filtered historical simulation;
+3. EWMA Gaussian versus filtered historical simulation.
+
+For example, suppose the ordered comparison is model $A$ minus model $B$ and
+
+```math
+\overline d_{A,B}=-0.00010,
+\qquad
+\operatorname{SE}_{\mathrm{HAC}}(\overline d_{A,B})=0.00004.
+```
+
+Then
+
+```math
+DM_{A,B}=-2.5,
+```
+
+with a two-sided unadjusted p-value of approximately $0.0124$. The negative
+sign says that $A$ has the smaller average score, while the small p-value says
+that equal expected predictive accuracy is doubtful before multiple-testing
+adjustment. If the same mean difference had a HAC standard error of $0.00015$,
+then $DM\approx-0.67$ and $p\approx0.50$: model $A$ would look better in the
+sample, but the evidence would not reliably distinguish the two models.
+
+The three model pairs across the three confidence levels produce nine tests
+per score family. Holm adjustment is applied separately to:
+
+- the nine VaR quantile-loss DM tests; and
+- the nine joint VaR-ES FZ0 DM tests.
+
+Keeping these as two predeclared hypothesis families preserves the distinction
+between VaR-only accuracy and joint VaR-ES accuracy. These comparison tests are
+also kept separate from the earlier calibration-test family.
+
+The implementation requires identical ordered forecast dates, realized
+losses, and confidence levels before forming any differential. It reports the
+ordered model names, mean differential, HAC standard error, bandwidth, DM
+statistic, raw p-value, Holm-adjusted p-value, and rejection decision. The
+sign of the mean and statistic identifies which named model scored better;
+the p-value alone does not.
+
+For the baseline, the project uses the large-sample, standard-normal DM test.
+The Harvey-Leybourne-Newbold correction is a documented small-sample
+alternative ([Harvey, Leybourne, and Newbold, 1997](https://doi.org/10.1016/S0169-2070(96)00719-4)),
+but it is not applied here because the baseline contains thousands of
+one-session-ahead forecasts and the project already uses a predeclared HAC
+procedure. Joint VaR-ES score comparisons by DM tests are supported directly
+by the joint-elicitability literature
+([Fissler, Ziegel, and Gneiting, 2016](https://arxiv.org/abs/1507.00244)).
+
 ## 9. Decisions still to be finalized
 
 The following choices remain open and must be documented before the relevant experiments begin:
 
 - missing-data exclusion rules;
-- the detailed DQ-test regressors and lag count;
-- the HAC bandwidth rule for pairwise forecast-comparison tests.
+- the detailed DQ-test regressors and lag count.
 
 Material changes to these conventions will be recorded in `docs/decisions.md`.

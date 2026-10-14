@@ -6,9 +6,9 @@ This checklist tracks the research, learning, and engineering progress of the Po
 
 **Current phase:** Statistical evaluation and uncertainty quantification
 
-**Next checkpoint:** Implement strictly consistent VaR quantile loss and the
-joint VaR-Expected-Shortfall FZ0 score before pairwise HAC model-comparison
-tests.
+**Next checkpoint:** Add the Basel rolling 250-session traffic-light diagnostic
+and begin predeclared subperiod analysis without changing the completed
+full-sample comparison protocol.
 
 ## 1. Project definition and research scope
 
@@ -197,7 +197,19 @@ tests.
   `c1d0cbca94b77d76e8fc1c2a27b928bf6a3511b7bb69ca18d3d2daf1764c0dcf`.
 - [x] Test the completed VaR coverage statistics against controlled manual
   examples, boundary cases, and integration checks.
-- [ ] Compare all models without assuming that greater complexity performs better.
+- [x] Implement strictly consistent VaR quantile loss and the joint
+  VaR-Expected-Shortfall FZ0 score in the project's positive-loss convention.
+- [x] Implement pairwise Diebold-Mariano tests with Newey-West HAC uncertainty
+  for every model pair and confidence level.
+- [x] Apply Holm adjustment separately to the nine quantile-loss comparisons
+  and the nine FZ0 comparisons.
+- [x] Add and test the reproducible predictive-accuracy report command.
+- [x] Generate the 18-row baseline predictive-accuracy report as snapshot
+  `20261014T014947595076Z_baseline_11_asset_predictive_accuracy`; its CSV
+  SHA-256 is
+  `0793527ab2c0fc44687103a7d34149ee78bc1a07892fc107fd1f915b4f5e3f1e`.
+- [x] Compare all models without assuming that greater complexity performs
+  better.
 
 ## 13. C++ numerical simulation core
 

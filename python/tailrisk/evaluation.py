@@ -90,6 +90,25 @@ class NeweyWestMeanTestResult:
 
 
 
+@dataclass(frozen=True)
+class DieboldMarianoTestResult:
+    """Result of a pairwise Diebold-Mariano score comparison."""
+
+    observation_count: int
+    bandwidth: int
+    mean_score_difference: float
+    long_run_variance: float
+    mean_variance: float
+    standard_error: float
+    test_statistic: float
+    p_value: float
+    significance_level: float
+    reject_null: bool
+
+
+
+
+
 def summarize_gaussian_monte_carlo_errors(
     analytic_forecasts: pd.DataFrame,
     monte_carlo_forecasts: pd.DataFrame,
@@ -522,6 +541,211 @@ def summarize_var_exceedances(
 
 
 
+def calculate_var_quantile_losses(
+    forecasts: pd.DataFrame,
+) -> pd.DataFrame:
+    """Calculate the quantile loss of every VaR forecast.
+
+    Quantile loss penalizes VaR underprediction by the confidence
+    level and overprediction by one minus the confidence level.
+    Smaller values indicate more accurate VaR forecasts.
+    """
+
+    # Reuse the established validation for the forecast index,
+    # confidence levels, finite losses and VaR values, and strict
+    # realized_loss > value_at_risk exceedance indicators.
+    summarize_var_exceedances(
+        forecasts=forecasts,
+    )
+
+    confidence_levels = (
+        forecasts.index
+        .get_level_values("confidence_level")
+        .to_numpy(dtype=float)
+    )
+    realized_losses = forecasts[
+        "realized_loss"
+    ].to_numpy(dtype=float)
+    value_at_risk = forecasts[
+        "value_at_risk"
+    ].to_numpy(dtype=float)
+    exceedances = forecasts[
+        "var_exceedance"
+    ].to_numpy(dtype=bool)
+
+    absolute_forecast_errors = np.abs(
+        realized_losses - value_at_risk
+    )
+    error_weights = np.where(
+        exceedances,
+        confidence_levels,
+        1.0 - confidence_levels,
+    )
+    quantile_losses = (
+        error_weights * absolute_forecast_errors
+    )
+
+    return pd.DataFrame(
+        {
+            "var_quantile_loss": quantile_losses,
+        },
+        index=forecasts.index.copy(),
+    )
+
+
+
+
+
+
+def summarize_var_quantile_loss(
+    forecasts: pd.DataFrame,
+) -> pd.DataFrame:
+    """Summarize average VaR quantile loss by confidence level.
+
+    Lower mean quantile loss indicates more accurate VaR forecasts.
+    Scores should only be compared across models using the same
+    confidence level and forecast observations.
+    """
+
+    quantile_losses = calculate_var_quantile_losses(
+        forecasts=forecasts,
+    )
+
+    records: list[dict[str, float | int]] = []
+
+    for confidence_level, level_losses in (
+        quantile_losses.groupby(
+            level="confidence_level",
+            sort=False,
+        )
+    ):
+        records.append(
+            {
+                "confidence_level": float(
+                    confidence_level
+                ),
+                "observation_count": len(
+                    level_losses
+                ),
+                "mean_var_quantile_loss": float(
+                    level_losses[
+                        "var_quantile_loss"
+                    ].mean()
+                ),
+            }
+        )
+
+    return (
+        pd.DataFrame.from_records(records)
+        .set_index("confidence_level")
+    )
+
+
+
+
+
+
+def evaluate_models_var_quantile_loss(
+    forecasts_by_model: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Compare average VaR quantile loss across aligned models.
+
+    Models must use identical ordered forecast indexes and realized
+    losses. Lower mean quantile loss receives a better descriptive
+    rank within each confidence level.
+    """
+
+    if not isinstance(forecasts_by_model, dict):
+        raise TypeError(
+            "Forecasts by model must be a dictionary."
+        )
+
+    if not forecasts_by_model:
+        raise ValueError(
+            "At least one model forecast table is required."
+        )
+
+    loss_tables: dict[str, pd.DataFrame] = {}
+    reference_index: pd.Index | None = None
+    reference_losses: np.ndarray | None = None
+    reference_model: str | None = None
+
+    for model_name, forecasts in (
+        forecasts_by_model.items()
+    ):
+        if (
+            not isinstance(model_name, str)
+            or not model_name.strip()
+        ):
+            raise ValueError(
+                "Each model name must be a non-empty string."
+            )
+
+        if not isinstance(forecasts, pd.DataFrame):
+            raise TypeError(
+                "Each model's forecasts must be a pandas DataFrame."
+            )
+
+        if (
+            reference_index is not None
+            and not forecasts.index.equals(
+                reference_index
+            )
+        ):
+            raise ValueError(
+                "All models must use the same ordered "
+                "forecast index."
+            )
+
+        loss_table = summarize_var_quantile_loss(
+            forecasts=forecasts,
+        )
+
+        if reference_index is None:
+            reference_index = forecasts.index
+            reference_losses = forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+            reference_model = model_name
+        else:
+            model_losses = forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+
+            if not np.allclose(
+                model_losses,
+                reference_losses,
+                rtol=1e-12,
+                atol=1e-15,
+            ):
+                raise ValueError(
+                    "All models must use identical realized "
+                    f"losses; {model_name} differs from "
+                    f"{reference_model}."
+                )
+
+        loss_tables[model_name] = loss_table
+
+    combined = pd.concat(
+        loss_tables,
+        names=["model"],
+    )
+
+    combined["var_quantile_loss_rank"] = (
+        combined.groupby(
+            level="confidence_level",
+            sort=False,
+        )["mean_var_quantile_loss"]
+        .rank(
+            method="min",
+            ascending=True,
+        )
+        .astype(int)
+    )
+
+    return combined
+
+
 def summarize_es_tail_severity(
     forecasts: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -706,6 +930,222 @@ def summarize_es_tail_severity(
 
 
 
+
+
+def calculate_fz0_losses(
+    forecasts: pd.DataFrame,
+) -> pd.DataFrame:
+    """Calculate the joint FZ0 loss of every VaR-ES forecast.
+
+    This is the positive-loss equivalent of the canonical return-domain
+    FZ0 score. Lower values indicate better joint VaR-ES forecasts.
+    """
+
+    # Reuse the established validation for forecast structure,
+    # confidence levels, realized losses, VaR exceedances, finite
+    # Expected Shortfall values, and the ES >= VaR requirement.
+    summarize_es_tail_severity(
+        forecasts=forecasts,
+    )
+
+    confidence_levels = (
+        forecasts.index
+        .get_level_values("confidence_level")
+        .to_numpy(dtype=float)
+    )
+    realized_losses = forecasts[
+        "realized_loss"
+    ].to_numpy(dtype=float)
+    value_at_risk = forecasts[
+        "value_at_risk"
+    ].to_numpy(dtype=float)
+    expected_shortfall = forecasts[
+        "expected_shortfall"
+    ].to_numpy(dtype=float)
+    exceedance_indicators = forecasts[
+        "var_exceedance"
+    ].to_numpy(dtype=bool)
+
+    if (expected_shortfall <= 0.0).any():
+        raise ValueError(
+            "Expected Shortfall forecasts must be strictly "
+            "positive for FZ0 scoring."
+        )
+
+    tail_excess = np.where(
+        exceedance_indicators,
+        realized_losses - value_at_risk,
+        0.0,
+    )
+
+    with np.errstate(
+        divide="ignore",
+        invalid="ignore",
+        over="ignore",
+    ):
+        fz0_losses = (
+            tail_excess
+            / (
+                (1.0 - confidence_levels)
+                * expected_shortfall
+            )
+            + value_at_risk / expected_shortfall
+            + np.log(expected_shortfall)
+            - 1.0
+        )
+
+    if not np.isfinite(fz0_losses).all():
+        raise ValueError(
+            "FZ0 losses must be finite."
+        )
+
+    return pd.DataFrame(
+        {
+            "fz0_loss": fz0_losses,
+        },
+        index=forecasts.index.copy(),
+    )
+
+
+def summarize_fz0_loss(
+    forecasts: pd.DataFrame,
+) -> pd.DataFrame:
+    """Summarize average joint FZ0 loss by confidence level.
+
+    Lower mean FZ0 loss indicates a better joint VaR-ES forecast.
+    Scores should only be compared across models using the same
+    confidence level, observations, and loss units.
+    """
+
+    fz0_losses = calculate_fz0_losses(
+        forecasts=forecasts,
+    )
+    records: list[dict[str, float | int]] = []
+
+    for confidence_level, level_losses in (
+        fz0_losses.groupby(
+            level="confidence_level",
+            sort=False,
+        )
+    ):
+        records.append(
+            {
+                "confidence_level": float(
+                    confidence_level
+                ),
+                "observation_count": len(
+                    level_losses
+                ),
+                "mean_fz0_loss": float(
+                    level_losses["fz0_loss"].mean()
+                ),
+            }
+        )
+
+    return (
+        pd.DataFrame.from_records(records)
+        .set_index("confidence_level")
+    )
+
+
+def evaluate_models_fz0_loss(
+    forecasts_by_model: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Compare average joint FZ0 loss across aligned models.
+
+    Models must use identical ordered forecast indexes and realized
+    losses. Lower mean FZ0 loss receives a better descriptive rank
+    within each confidence level.
+    """
+
+    if not isinstance(forecasts_by_model, dict):
+        raise TypeError(
+            "Forecasts by model must be a dictionary."
+        )
+
+    if not forecasts_by_model:
+        raise ValueError(
+            "At least one model forecast table is required."
+        )
+
+    loss_tables: dict[str, pd.DataFrame] = {}
+    reference_index: pd.Index | None = None
+    reference_losses: np.ndarray | None = None
+    reference_model: str | None = None
+
+    for model_name, forecasts in (
+        forecasts_by_model.items()
+    ):
+        if (
+            not isinstance(model_name, str)
+            or not model_name.strip()
+        ):
+            raise ValueError(
+                "Each model name must be a non-empty string."
+            )
+
+        if not isinstance(forecasts, pd.DataFrame):
+            raise TypeError(
+                "Each model's forecasts must be a pandas DataFrame."
+            )
+
+        if (
+            reference_index is not None
+            and not forecasts.index.equals(
+                reference_index
+            )
+        ):
+            raise ValueError(
+                "All models must use the same ordered "
+                "forecast index."
+            )
+
+        loss_table = summarize_fz0_loss(
+            forecasts=forecasts,
+        )
+
+        if reference_index is None:
+            reference_index = forecasts.index
+            reference_losses = forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+            reference_model = model_name
+        else:
+            model_losses = forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+
+            if not np.allclose(
+                model_losses,
+                reference_losses,
+                rtol=1e-12,
+                atol=1e-15,
+            ):
+                raise ValueError(
+                    "All models must use identical realized "
+                    f"losses; {model_name} differs from "
+                    f"{reference_model}."
+                )
+
+        loss_tables[model_name] = loss_table
+
+    combined = pd.concat(
+        loss_tables,
+        names=["model"],
+    )
+    combined["fz0_loss_rank"] = (
+        combined.groupby(
+            level="confidence_level",
+            sort=False,
+        )["mean_fz0_loss"]
+        .rank(
+            method="min",
+            ascending=True,
+        )
+        .astype(int)
+    )
+
+    return combined
 
 
 def calculate_var_es_identification_residuals(
@@ -1056,6 +1496,360 @@ def calculate_newey_west_mean_test(
 
 
 
+
+
+
+
+
+def calculate_diebold_mariano_test(
+    model_a_scores: pd.Series,
+    model_b_scores: pd.Series,
+    bandwidth: int | None = None,
+    significance_level: float = 0.05,
+) -> DieboldMarianoTestResult:
+    """Compare two aligned daily score series with a HAC DM test.
+
+    The score differential is model A minus model B. Because lower
+    forecast scores are better, a negative mean difference favors
+    model A and a positive mean difference favors model B.
+    """
+
+    if not isinstance(model_a_scores, pd.Series):
+        raise TypeError(
+            "Model A scores must be a pandas Series."
+        )
+
+    if not isinstance(model_b_scores, pd.Series):
+        raise TypeError(
+            "Model B scores must be a pandas Series."
+        )
+
+    if not model_a_scores.index.equals(
+        model_b_scores.index
+    ):
+        raise ValueError(
+            "Model score series must use the same ordered index."
+        )
+
+    for scores, label in (
+        (model_a_scores, "Model A scores"),
+        (model_b_scores, "Model B scores"),
+    ):
+        if any(
+            isinstance(value, (bool, np.bool_))
+            for value in scores
+        ):
+            raise ValueError(
+                f"{label} must contain finite numbers."
+            )
+
+        try:
+            score_values = scores.to_numpy(
+                dtype=float
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"{label} must contain finite numbers."
+            ) from error
+
+        if not np.isfinite(score_values).all():
+            raise ValueError(
+                f"{label} must contain finite numbers."
+            )
+
+    model_a_values = model_a_scores.to_numpy(
+        dtype=float
+    )
+    model_b_values = model_b_scores.to_numpy(
+        dtype=float
+    )
+
+    with np.errstate(over="ignore", invalid="ignore"):
+        score_differences = (
+            model_a_values - model_b_values
+        )
+
+    if not np.isfinite(score_differences).all():
+        raise ValueError(
+            "Model score differences must be finite."
+        )
+
+    hac_result = calculate_newey_west_mean_test(
+        observations=pd.Series(
+            score_differences,
+            index=model_a_scores.index.copy(),
+            name="score_difference",
+        ),
+        bandwidth=bandwidth,
+        significance_level=significance_level,
+    )
+
+    return DieboldMarianoTestResult(
+        observation_count=(
+            hac_result.observation_count
+        ),
+        bandwidth=hac_result.bandwidth,
+        mean_score_difference=(
+            hac_result.sample_mean
+        ),
+        long_run_variance=(
+            hac_result.long_run_variance
+        ),
+        mean_variance=hac_result.mean_variance,
+        standard_error=hac_result.standard_error,
+        test_statistic=hac_result.test_statistic,
+        p_value=hac_result.p_value,
+        significance_level=(
+            hac_result.significance_level
+        ),
+        reject_null=hac_result.reject_null,
+    )
+
+
+
+
+
+def evaluate_models_diebold_mariano(
+    forecasts_by_model: dict[str, pd.DataFrame],
+    bandwidth: int | None = None,
+    significance_level: float = 0.05,
+) -> pd.DataFrame:
+    """Compare aligned models using quantile-loss and FZ0 DM tests.
+
+    Every unordered model pair is tested separately at each confidence
+    level. Holm adjustment is applied independently to the quantile-loss
+    family and the joint VaR-ES FZ0 family.
+    """
+
+    if not isinstance(forecasts_by_model, dict):
+        raise TypeError(
+            "Forecasts by model must be a dictionary."
+        )
+
+    if len(forecasts_by_model) < 2:
+        raise ValueError(
+            "At least two model forecast tables are required."
+        )
+
+    scores_by_model: dict[
+        str,
+        dict[str, pd.Series],
+    ] = {}
+    reference_index: pd.Index | None = None
+    reference_losses: np.ndarray | None = None
+    reference_model: str | None = None
+
+    for model_name, forecasts in (
+        forecasts_by_model.items()
+    ):
+        if (
+            not isinstance(model_name, str)
+            or not model_name.strip()
+        ):
+            raise ValueError(
+                "Each model name must be a non-empty string."
+            )
+
+        if not isinstance(forecasts, pd.DataFrame):
+            raise TypeError(
+                "Each model's forecasts must be a pandas DataFrame."
+            )
+
+        if (
+            reference_index is not None
+            and not forecasts.index.equals(
+                reference_index
+            )
+        ):
+            raise ValueError(
+                "All models must use the same ordered "
+                "forecast index."
+            )
+
+        quantile_losses = calculate_var_quantile_losses(
+            forecasts=forecasts,
+        )["var_quantile_loss"]
+        fz0_losses = calculate_fz0_losses(
+            forecasts=forecasts,
+        )["fz0_loss"]
+
+        if reference_index is None:
+            reference_index = forecasts.index
+            reference_losses = forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+            reference_model = model_name
+        else:
+            model_losses = forecasts[
+                "realized_loss"
+            ].to_numpy(dtype=float)
+
+            if not np.allclose(
+                model_losses,
+                reference_losses,
+                rtol=1e-12,
+                atol=1e-15,
+            ):
+                raise ValueError(
+                    "All models must use identical realized "
+                    f"losses; {model_name} differs from "
+                    f"{reference_model}."
+                )
+
+        scores_by_model[model_name] = {
+            "var_quantile_loss": quantile_losses,
+            "fz0_loss": fz0_losses,
+        }
+
+    model_names = list(scores_by_model)
+    confidence_levels = (
+        reference_index
+        .get_level_values("confidence_level")
+        .unique()
+    )
+    records: list[
+        dict[str, float | int | bool | str]
+    ] = []
+
+    for score_name in (
+        "var_quantile_loss",
+        "fz0_loss",
+    ):
+        for confidence_level in confidence_levels:
+            for model_a_position, model_a in enumerate(
+                model_names[:-1]
+            ):
+                for model_b in model_names[
+                    model_a_position + 1:
+                ]:
+                    model_a_scores = scores_by_model[
+                        model_a
+                    ][score_name].xs(
+                        confidence_level,
+                        level="confidence_level",
+                    )
+                    model_b_scores = scores_by_model[
+                        model_b
+                    ][score_name].xs(
+                        confidence_level,
+                        level="confidence_level",
+                    )
+                    dm_result = (
+                        calculate_diebold_mariano_test(
+                            model_a_scores=(
+                                model_a_scores
+                            ),
+                            model_b_scores=(
+                                model_b_scores
+                            ),
+                            bandwidth=bandwidth,
+                            significance_level=(
+                                significance_level
+                            ),
+                        )
+                    )
+
+                    records.append(
+                        {
+                            "score_name": score_name,
+                            "confidence_level": float(
+                                confidence_level
+                            ),
+                            "model_a": model_a,
+                            "model_b": model_b,
+                            "observation_count": (
+                                dm_result.observation_count
+                            ),
+                            "mean_score_difference": (
+                                dm_result
+                                .mean_score_difference
+                            ),
+                            "hac_long_run_variance": (
+                                dm_result
+                                .long_run_variance
+                            ),
+                            "hac_mean_variance": (
+                                dm_result.mean_variance
+                            ),
+                            "hac_standard_error": (
+                                dm_result.standard_error
+                            ),
+                            "hac_bandwidth": (
+                                dm_result.bandwidth
+                            ),
+                            "dm_statistic": (
+                                dm_result.test_statistic
+                            ),
+                            "dm_p_value": (
+                                dm_result.p_value
+                            ),
+                            "significance_level": (
+                                dm_result
+                                .significance_level
+                            ),
+                            "dm_reject_equal_accuracy": (
+                                dm_result.reject_null
+                            ),
+                        }
+                    )
+
+    combined = (
+        pd.DataFrame.from_records(records)
+        .set_index(
+            [
+                "score_name",
+                "confidence_level",
+                "model_a",
+                "model_b",
+            ]
+        )
+    )
+    holm_p_values = pd.Series(
+        index=combined.index,
+        dtype=float,
+    )
+    holm_rejections = pd.Series(
+        False,
+        index=combined.index,
+        dtype=bool,
+    )
+
+    for score_name in (
+        "var_quantile_loss",
+        "fz0_loss",
+    ):
+        family_mask = (
+            combined.index.get_level_values(
+                "score_name"
+            )
+            == score_name
+        )
+        family_adjustment = adjust_p_values_holm(
+            p_values=combined.loc[
+                family_mask,
+                "dm_p_value",
+            ],
+            significance_level=significance_level,
+        )
+        holm_p_values.loc[family_mask] = (
+            family_adjustment[
+                "holm_adjusted_p_value"
+            ].to_numpy()
+        )
+        holm_rejections.loc[family_mask] = (
+            family_adjustment[
+                "reject_null_holm"
+            ].to_numpy(dtype=bool)
+        )
+
+    combined["holm_adjusted_p_value"] = (
+        holm_p_values
+    )
+    combined[
+        "holm_reject_equal_accuracy"
+    ] = holm_rejections
+
+    return combined
 
 
 

@@ -1,26 +1,36 @@
 """Tests for forecast comparison diagnostics."""
 
+from math import log
+
 import pandas as pd
 import pytest
 
 from tailrisk.evaluation import (
     adjust_p_values_holm,
+    calculate_diebold_mariano_test,
+    calculate_fz0_losses,
     calculate_christoffersen_conditional_coverage,
     calculate_christoffersen_independence,
     calculate_kupiec_unconditional_coverage,
     calculate_exact_binomial_interval,
     calculate_var_es_identification_residuals,
     calculate_newey_west_mean_test,
+    calculate_var_quantile_losses,
     count_var_exceedance_transitions,
+    evaluate_models_fz0_loss,
+    evaluate_models_diebold_mariano,
+    evaluate_models_var_quantile_loss,
     evaluate_models_var_es_identification,
     evaluate_models_var_coverage,
     evaluate_var_coverage,
     evaluate_models_es_tail_severity,
     evaluate_var_unconditional_coverage,
     summarize_es_tail_severity,
+    summarize_fz0_loss,
     summarize_gaussian_monte_carlo_errors,
     summarize_var_exceedances,
     summarize_var_es_identification,
+    summarize_var_quantile_loss,
 )
 
 
@@ -284,6 +294,77 @@ def _create_es_tail_severity_forecasts() -> pd.DataFrame:
         },
         index=index,
     )
+
+
+
+
+
+def test_var_quantile_losses_match_manual_example(
+) -> None:
+    """VaR quantile losses match controlled forecast errors."""
+
+    dates = pd.date_range(
+        start="2025-01-02",
+        periods=3,
+        freq="D",
+    )
+    index = pd.MultiIndex.from_product(
+        [
+            dates,
+            [0.95],
+        ],
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+
+    forecasts = pd.DataFrame(
+        {
+            "realized_loss": [
+                0.010,
+                0.020,
+                0.030,
+            ],
+            "value_at_risk": [
+                0.020,
+                0.020,
+                0.020,
+            ],
+            "var_exceedance": [
+                False,
+                False,
+                True,
+            ],
+        },
+        index=index,
+    )
+
+    result = calculate_var_quantile_losses(
+        forecasts=forecasts,
+    )
+
+    assert result.index.equals(forecasts.index)
+
+    assert result[
+        "var_quantile_loss"
+    ].to_numpy() == pytest.approx(
+        [
+            0.0005,
+            0.0000,
+            0.0095,
+        ]
+    )
+
+    assert (
+        result["var_quantile_loss"] >= 0.0
+    ).all()
+
+    assert (
+        result.iloc[2]["var_quantile_loss"]
+        / result.iloc[0]["var_quantile_loss"]
+    ) == pytest.approx(19.0)
+
 
 
 
@@ -743,6 +824,579 @@ def test_newey_west_mean_test_rejects_invalid_bandwidth(
         calculate_newey_west_mean_test(
             observations=observations,
             bandwidth=bad_bandwidth,
+        )
+
+
+def test_diebold_mariano_test_matches_hac_manual_example(
+) -> None:
+    """DM results equal the HAC test of A-minus-B scores."""
+
+    dates = pd.date_range(
+        start="2025-01-02",
+        periods=4,
+        freq="D",
+    )
+    model_a_scores = pd.Series(
+        [2.0, 4.0, 6.0, 8.0],
+        index=dates,
+        name="model_a_score",
+    )
+    model_b_scores = pd.Series(
+        [1.0, 2.0, 3.0, 4.0],
+        index=dates,
+        name="model_b_score",
+    )
+
+    result = calculate_diebold_mariano_test(
+        model_a_scores=model_a_scores,
+        model_b_scores=model_b_scores,
+        bandwidth=1,
+        significance_level=0.05,
+    )
+
+    assert result.observation_count == 4
+    assert result.bandwidth == 1
+    assert result.mean_score_difference == pytest.approx(
+        2.5
+    )
+    assert result.long_run_variance == pytest.approx(
+        1.5625
+    )
+    assert result.mean_variance == pytest.approx(
+        0.390625
+    )
+    assert result.standard_error == pytest.approx(
+        0.625
+    )
+    assert result.test_statistic == pytest.approx(4.0)
+    assert result.p_value == pytest.approx(
+        0.00006334248366623984
+    )
+    assert result.significance_level == pytest.approx(
+        0.05
+    )
+    assert result.reject_null
+
+
+def test_diebold_mariano_sign_identifies_better_model(
+) -> None:
+    """A negative A-minus-B mean identifies model A as better."""
+
+    dates = pd.date_range(
+        start="2025-01-02",
+        periods=4,
+        freq="D",
+    )
+    model_a_scores = pd.Series(
+        [1.0, 2.0, 3.0, 4.0],
+        index=dates,
+    )
+    model_b_scores = pd.Series(
+        [2.0, 4.0, 6.0, 8.0],
+        index=dates,
+    )
+
+    result = calculate_diebold_mariano_test(
+        model_a_scores=model_a_scores,
+        model_b_scores=model_b_scores,
+        bandwidth=1,
+    )
+
+    assert result.mean_score_difference == pytest.approx(
+        -2.5
+    )
+    assert result.test_statistic == pytest.approx(-4.0)
+    assert result.p_value == pytest.approx(
+        0.00006334248366623984
+    )
+
+
+@pytest.mark.parametrize(
+    (
+        "model_a_values",
+        "model_b_values",
+        "expected_mean",
+        "expected_statistic",
+        "expected_p_value",
+    ),
+    [
+        (
+            [1.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0],
+            0.0,
+            0.0,
+            1.0,
+        ),
+        (
+            [2.0, 2.0, 2.0],
+            [1.0, 1.0, 1.0],
+            1.0,
+            float("inf"),
+            0.0,
+        ),
+    ],
+)
+def test_diebold_mariano_handles_zero_hac_variance(
+    model_a_values: list[float],
+    model_b_values: list[float],
+    expected_mean: float,
+    expected_statistic: float,
+    expected_p_value: float,
+) -> None:
+    """Constant differentials have defined DM boundary results."""
+
+    dates = pd.date_range(
+        start="2025-01-02",
+        periods=3,
+        freq="D",
+    )
+
+    result = calculate_diebold_mariano_test(
+        model_a_scores=pd.Series(
+            model_a_values,
+            index=dates,
+        ),
+        model_b_scores=pd.Series(
+            model_b_values,
+            index=dates,
+        ),
+        bandwidth=0,
+    )
+
+    assert result.mean_score_difference == pytest.approx(
+        expected_mean
+    )
+    assert result.standard_error == pytest.approx(0.0)
+    assert result.test_statistic == expected_statistic
+    assert result.p_value == pytest.approx(
+        expected_p_value
+    )
+
+
+def test_diebold_mariano_rejects_misaligned_score_index(
+) -> None:
+    """Paired DM scores must use the same ordered observations."""
+
+    model_a_scores = pd.Series(
+        [1.0, 2.0, 3.0],
+        index=pd.date_range(
+            "2025-01-02",
+            periods=3,
+            freq="D",
+        ),
+    )
+    model_b_scores = model_a_scores.iloc[::-1]
+
+    with pytest.raises(
+        ValueError,
+        match="same ordered index",
+    ):
+        calculate_diebold_mariano_test(
+            model_a_scores=model_a_scores,
+            model_b_scores=model_b_scores,
+        )
+
+
+@pytest.mark.parametrize(
+    "bad_values",
+    [
+        [1.0, float("nan"), 3.0],
+        [1.0, float("inf"), 3.0],
+        [True, False, True],
+    ],
+)
+def test_diebold_mariano_rejects_invalid_scores(
+    bad_values: list[object],
+) -> None:
+    """Each DM score series must contain finite non-boolean numbers."""
+
+    dates = pd.date_range(
+        "2025-01-02",
+        periods=3,
+        freq="D",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Model A scores must contain finite numbers",
+    ):
+        calculate_diebold_mariano_test(
+            model_a_scores=pd.Series(
+                bad_values,
+                index=dates,
+            ),
+            model_b_scores=pd.Series(
+                [1.0, 2.0, 3.0],
+                index=dates,
+            ),
+        )
+
+
+def _create_dm_integration_forecasts(
+    value_at_risk: float,
+    expected_shortfall: float,
+) -> pd.DataFrame:
+    """Create three-level forecasts for integrated DM tests."""
+
+    dates = pd.date_range(
+        start="2025-01-02",
+        periods=4,
+        freq="D",
+    )
+    confidence_levels = [
+        0.95,
+        0.975,
+        0.99,
+    ]
+    index = pd.MultiIndex.from_product(
+        [
+            dates,
+            confidence_levels,
+        ],
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+    realized_losses = [
+        loss
+        for loss in [
+            0.010,
+            0.020,
+            0.030,
+            0.040,
+        ]
+        for _ in confidence_levels
+    ]
+    value_at_risk_values = [
+        value_at_risk
+    ] * len(index)
+
+    return pd.DataFrame(
+        {
+            "realized_loss": realized_losses,
+            "value_at_risk": value_at_risk_values,
+            "expected_shortfall": [
+                expected_shortfall
+            ] * len(index),
+            "var_exceedance": [
+                loss > forecast
+                for loss, forecast in zip(
+                    realized_losses,
+                    value_at_risk_values,
+                    strict=True,
+                )
+            ],
+        },
+        index=index,
+    )
+
+
+def test_model_diebold_mariano_runs_every_pair_and_level(
+) -> None:
+    """Three models and levels produce both nine-test families."""
+
+    forecasts_by_model = {
+        "rolling_gaussian": (
+            _create_dm_integration_forecasts(
+                value_at_risk=0.020,
+                expected_shortfall=0.030,
+            )
+        ),
+        "ewma_gaussian": (
+            _create_dm_integration_forecasts(
+                value_at_risk=0.025,
+                expected_shortfall=0.035,
+            )
+        ),
+        "filtered_historical": (
+            _create_dm_integration_forecasts(
+                value_at_risk=0.022,
+                expected_shortfall=0.032,
+            )
+        ),
+    }
+
+    result = evaluate_models_diebold_mariano(
+        forecasts_by_model=forecasts_by_model,
+        bandwidth=1,
+        significance_level=0.10,
+    )
+
+    assert result.index.names == [
+        "score_name",
+        "confidence_level",
+        "model_a",
+        "model_b",
+    ]
+    assert len(result) == 18
+    assert list(
+        result.index
+        .get_level_values("score_name")
+        .unique()
+    ) == [
+        "var_quantile_loss",
+        "fz0_loss",
+    ]
+
+    for score_name in (
+        "var_quantile_loss",
+        "fz0_loss",
+    ):
+        assert len(result.xs(
+            score_name,
+            level="score_name",
+        )) == 9
+
+    expected_pairs = [
+        (
+            "rolling_gaussian",
+            "ewma_gaussian",
+        ),
+        (
+            "rolling_gaussian",
+            "filtered_historical",
+        ),
+        (
+            "ewma_gaussian",
+            "filtered_historical",
+        ),
+    ]
+    actual_pairs = list(
+        result.xs(
+            (
+                "var_quantile_loss",
+                0.95,
+            ),
+            level=(
+                "score_name",
+                "confidence_level",
+            ),
+        ).index
+    )
+    assert actual_pairs == expected_pairs
+
+
+def test_model_diebold_mariano_matches_daily_score_pipeline(
+) -> None:
+    """Integrated DM rows match separately calculated daily scores."""
+
+    rolling_forecasts = _create_dm_integration_forecasts(
+        value_at_risk=0.020,
+        expected_shortfall=0.030,
+    )
+    ewma_forecasts = _create_dm_integration_forecasts(
+        value_at_risk=0.025,
+        expected_shortfall=0.035,
+    )
+    filtered_forecasts = (
+        _create_dm_integration_forecasts(
+            value_at_risk=0.022,
+            expected_shortfall=0.032,
+        )
+    )
+
+    result = evaluate_models_diebold_mariano(
+        forecasts_by_model={
+            "rolling_gaussian": rolling_forecasts,
+            "ewma_gaussian": ewma_forecasts,
+            "filtered_historical": (
+                filtered_forecasts
+            ),
+        },
+        bandwidth=1,
+        significance_level=0.10,
+    )
+
+    rolling_scores = calculate_fz0_losses(
+        forecasts=rolling_forecasts,
+    ).xs(
+        0.975,
+        level="confidence_level",
+    )["fz0_loss"]
+    filtered_scores = calculate_fz0_losses(
+        forecasts=filtered_forecasts,
+    ).xs(
+        0.975,
+        level="confidence_level",
+    )["fz0_loss"]
+    expected = calculate_diebold_mariano_test(
+        model_a_scores=rolling_scores,
+        model_b_scores=filtered_scores,
+        bandwidth=1,
+        significance_level=0.10,
+    )
+    row = result.loc[
+        (
+            "fz0_loss",
+            0.975,
+            "rolling_gaussian",
+            "filtered_historical",
+        )
+    ]
+
+    assert row["observation_count"] == 4
+    assert row["mean_score_difference"] == (
+        pytest.approx(
+            expected.mean_score_difference
+        )
+    )
+    assert row["hac_long_run_variance"] == (
+        pytest.approx(
+            expected.long_run_variance
+        )
+    )
+    assert row["hac_standard_error"] == (
+        pytest.approx(expected.standard_error)
+    )
+    assert row["hac_bandwidth"] == 1
+    assert row["dm_statistic"] == pytest.approx(
+        expected.test_statistic
+    )
+    assert row["dm_p_value"] == pytest.approx(
+        expected.p_value
+    )
+    assert bool(
+        row["dm_reject_equal_accuracy"]
+    ) is expected.reject_null
+
+
+def test_model_diebold_mariano_adjusts_score_families_separately(
+) -> None:
+    """Quantile and FZ0 p-values receive separate Holm adjustments."""
+
+    result = evaluate_models_diebold_mariano(
+        forecasts_by_model={
+            "rolling_gaussian": (
+                _create_dm_integration_forecasts(
+                    value_at_risk=0.020,
+                    expected_shortfall=0.030,
+                )
+            ),
+            "ewma_gaussian": (
+                _create_dm_integration_forecasts(
+                    value_at_risk=0.025,
+                    expected_shortfall=0.035,
+                )
+            ),
+            "filtered_historical": (
+                _create_dm_integration_forecasts(
+                    value_at_risk=0.022,
+                    expected_shortfall=0.032,
+                )
+            ),
+        },
+        bandwidth=1,
+        significance_level=0.10,
+    )
+
+    for score_name in (
+        "var_quantile_loss",
+        "fz0_loss",
+    ):
+        family = result.xs(
+            score_name,
+            level="score_name",
+        )
+        expected = adjust_p_values_holm(
+            p_values=family["dm_p_value"],
+            significance_level=0.10,
+        )
+
+        assert family[
+            "holm_adjusted_p_value"
+        ].to_numpy() == pytest.approx(
+            expected[
+                "holm_adjusted_p_value"
+            ].to_numpy()
+        )
+        assert family[
+            "holm_reject_equal_accuracy"
+        ].to_numpy(dtype=bool).tolist() == (
+            expected[
+                "reject_null_holm"
+            ].to_numpy(dtype=bool).tolist()
+        )
+
+
+def test_model_diebold_mariano_requires_two_models(
+) -> None:
+    """Pairwise predictive-accuracy tests need two models."""
+
+    forecasts = _create_dm_integration_forecasts(
+        value_at_risk=0.020,
+        expected_shortfall=0.030,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="At least two model",
+    ):
+        evaluate_models_diebold_mariano(
+            forecasts_by_model={
+                "rolling_gaussian": forecasts,
+            },
+        )
+
+
+def test_model_diebold_mariano_rejects_misaligned_index(
+) -> None:
+    """Integrated DM tests require identical ordered forecast rows."""
+
+    rolling_forecasts = _create_dm_integration_forecasts(
+        value_at_risk=0.020,
+        expected_shortfall=0.030,
+    )
+    ewma_forecasts = _create_dm_integration_forecasts(
+        value_at_risk=0.025,
+        expected_shortfall=0.035,
+    ).iloc[::-1]
+
+    with pytest.raises(
+        ValueError,
+        match="same ordered forecast index",
+    ):
+        evaluate_models_diebold_mariano(
+            forecasts_by_model={
+                "rolling_gaussian": rolling_forecasts,
+                "ewma_gaussian": ewma_forecasts,
+            },
+        )
+
+
+def test_model_diebold_mariano_rejects_different_losses(
+) -> None:
+    """Integrated DM tests require identical realized outcomes."""
+
+    rolling_forecasts = _create_dm_integration_forecasts(
+        value_at_risk=0.020,
+        expected_shortfall=0.030,
+    )
+    ewma_forecasts = _create_dm_integration_forecasts(
+        value_at_risk=0.025,
+        expected_shortfall=0.035,
+    )
+    ewma_forecasts.iloc[
+        0,
+        ewma_forecasts.columns.get_loc(
+            "realized_loss"
+        ),
+    ] += 0.001
+    ewma_forecasts["var_exceedance"] = (
+        ewma_forecasts["realized_loss"]
+        > ewma_forecasts["value_at_risk"]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="identical realized losses",
+    ):
+        evaluate_models_diebold_mariano(
+            forecasts_by_model={
+                "rolling_gaussian": rolling_forecasts,
+                "ewma_gaussian": ewma_forecasts,
+            },
+            bandwidth=1,
         )
 
 
@@ -2262,4 +2916,634 @@ def test_model_coverage_evaluation_rejects_empty_mapping(
     ):
         evaluate_models_var_coverage(
             forecasts_by_model={}
+        )
+
+
+
+
+def _create_var_quantile_ranking_forecasts(
+    value_at_risk: float,
+) -> pd.DataFrame:
+    """Create aligned forecasts for quantile-loss ranking tests."""
+
+    dates = pd.date_range(
+        start="2025-01-02",
+        periods=3,
+        freq="D",
+    )
+    index = pd.MultiIndex.from_product(
+        [
+            dates,
+            [0.95],
+        ],
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+    realized_losses = [
+        0.010,
+        0.020,
+        0.030,
+    ]
+    value_at_risk_values = [
+        value_at_risk,
+        value_at_risk,
+        value_at_risk,
+    ]
+
+    return pd.DataFrame(
+        {
+            "realized_loss": realized_losses,
+            "value_at_risk": (
+                value_at_risk_values
+            ),
+            "var_exceedance": [
+                loss > forecast
+                for loss, forecast in zip(
+                    realized_losses,
+                    value_at_risk_values,
+                    strict=True,
+                )
+            ],
+        },
+        index=index,
+    )
+
+
+def test_var_quantile_loss_summary_matches_manual_example(
+) -> None:
+    """Mean quantile loss is calculated separately by level."""
+
+    dates = pd.date_range(
+        start="2025-01-02",
+        periods=3,
+        freq="D",
+    )
+    index = pd.MultiIndex.from_product(
+        [
+            dates,
+            [
+                0.95,
+                0.99,
+            ],
+        ],
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+
+    forecasts = pd.DataFrame(
+        {
+            "realized_loss": [
+                0.010,
+                0.010,
+                0.020,
+                0.020,
+                0.030,
+                0.030,
+            ],
+            "value_at_risk": [
+                0.020,
+                0.025,
+                0.020,
+                0.025,
+                0.020,
+                0.025,
+            ],
+            "var_exceedance": [
+                False,
+                False,
+                False,
+                False,
+                True,
+                True,
+            ],
+        },
+        index=index,
+    )
+
+    result = summarize_var_quantile_loss(
+        forecasts=forecasts,
+    )
+
+    assert list(result.index) == [
+        0.95,
+        0.99,
+    ]
+
+    assert result.loc[
+        0.95,
+        "observation_count",
+    ] == 3
+    assert result.loc[
+        0.99,
+        "observation_count",
+    ] == 3
+
+    assert result.loc[
+        0.95,
+        "mean_var_quantile_loss",
+    ] == pytest.approx(
+        (
+            0.0005
+            + 0.0000
+            + 0.0095
+        )
+        / 3.0
+    )
+
+    assert result.loc[
+        0.99,
+        "mean_var_quantile_loss",
+    ] == pytest.approx(
+        (
+            0.00015
+            + 0.00005
+            + 0.00495
+        )
+        / 3.0
+    )
+
+
+def test_model_var_quantile_loss_ranks_aligned_models(
+) -> None:
+    """Aligned models are ranked by their mean quantile loss."""
+
+    rolling_forecasts = (
+        _create_var_quantile_ranking_forecasts(
+            value_at_risk=0.020,
+        )
+    )
+    ewma_forecasts = (
+        _create_var_quantile_ranking_forecasts(
+            value_at_risk=0.025,
+        )
+    )
+    filtered_forecasts = (
+        _create_var_quantile_ranking_forecasts(
+            value_at_risk=0.021,
+        )
+    )
+
+    result = evaluate_models_var_quantile_loss(
+        forecasts_by_model={
+            "rolling_gaussian": rolling_forecasts,
+            "ewma_gaussian": ewma_forecasts,
+            "filtered_historical": (
+                filtered_forecasts
+            ),
+        }
+    )
+
+    assert result.index.names == [
+        "model",
+        "confidence_level",
+    ]
+
+    assert result.loc[
+        (
+            "rolling_gaussian",
+            0.95,
+        ),
+        "mean_var_quantile_loss",
+    ] == pytest.approx(
+        0.0100 / 3.0
+    )
+
+    assert result.loc[
+        (
+            "ewma_gaussian",
+            0.95,
+        ),
+        "mean_var_quantile_loss",
+    ] == pytest.approx(
+        0.00575 / 3.0
+    )
+
+    assert result.loc[
+        (
+            "filtered_historical",
+            0.95,
+        ),
+        "mean_var_quantile_loss",
+    ] == pytest.approx(
+        0.00915 / 3.0
+    )
+
+    assert result.loc[
+        (
+            "ewma_gaussian",
+            0.95,
+        ),
+        "var_quantile_loss_rank",
+    ] == 1
+
+    assert result.loc[
+        (
+            "filtered_historical",
+            0.95,
+        ),
+        "var_quantile_loss_rank",
+    ] == 2
+
+    assert result.loc[
+        (
+            "rolling_gaussian",
+            0.95,
+        ),
+        "var_quantile_loss_rank",
+    ] == 3
+
+
+def test_model_var_quantile_loss_rejects_misaligned_index(
+) -> None:
+    """Quantile-loss comparisons require identical ordered rows."""
+
+    rolling_forecasts = (
+        _create_var_quantile_ranking_forecasts(
+            value_at_risk=0.020,
+        )
+    )
+    ewma_forecasts = (
+        _create_var_quantile_ranking_forecasts(
+            value_at_risk=0.025,
+        )
+        .iloc[::-1]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="same ordered forecast index",
+    ):
+        evaluate_models_var_quantile_loss(
+            forecasts_by_model={
+                "rolling_gaussian": rolling_forecasts,
+                "ewma_gaussian": ewma_forecasts,
+            }
+        )
+
+
+def test_model_var_quantile_loss_rejects_different_losses(
+) -> None:
+    """Quantile-loss comparisons require identical realized losses."""
+
+    rolling_forecasts = (
+        _create_var_quantile_ranking_forecasts(
+            value_at_risk=0.020,
+        )
+    )
+    ewma_forecasts = (
+        _create_var_quantile_ranking_forecasts(
+            value_at_risk=0.025,
+        )
+    )
+    ewma_forecasts.iloc[
+        0,
+        ewma_forecasts.columns.get_loc(
+            "realized_loss"
+        ),
+    ] += 0.001
+    ewma_forecasts["var_exceedance"] = (
+        ewma_forecasts["realized_loss"]
+        > ewma_forecasts["value_at_risk"]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="identical realized losses",
+    ):
+        evaluate_models_var_quantile_loss(
+            forecasts_by_model={
+                "rolling_gaussian": rolling_forecasts,
+                "ewma_gaussian": ewma_forecasts,
+            }
+        )
+
+
+def test_model_var_quantile_loss_rejects_empty_mapping(
+) -> None:
+    """At least one model is required for quantile-loss ranking."""
+
+    with pytest.raises(
+        ValueError,
+        match="At least one model",
+    ):
+        evaluate_models_var_quantile_loss(
+            forecasts_by_model={},
+        )
+
+
+def _create_fz0_forecasts(
+    value_at_risk: float = 0.020,
+    expected_shortfall: float = 0.030,
+) -> pd.DataFrame:
+    """Create controlled forecasts for daily FZ0 tests."""
+
+    dates = pd.date_range(
+        start="2025-01-02",
+        periods=3,
+        freq="D",
+    )
+    index = pd.MultiIndex.from_product(
+        [
+            dates,
+            [0.95],
+        ],
+        names=[
+            "forecast_date",
+            "confidence_level",
+        ],
+    )
+
+    return pd.DataFrame(
+        {
+            "realized_loss": [
+                0.010,
+                0.020,
+                0.030,
+            ],
+            "value_at_risk": [
+                value_at_risk,
+                value_at_risk,
+                value_at_risk,
+            ],
+            "expected_shortfall": [
+                expected_shortfall,
+                expected_shortfall,
+                expected_shortfall,
+            ],
+            "var_exceedance": [
+                loss > value_at_risk
+                for loss in [
+                    0.010,
+                    0.020,
+                    0.030,
+                ]
+            ],
+        },
+        index=index,
+    )
+
+
+def test_fz0_losses_match_positive_loss_manual_example(
+) -> None:
+    """Positive-loss FZ0 scores match a manual calculation."""
+
+    forecasts = _create_fz0_forecasts()
+
+    result = calculate_fz0_losses(
+        forecasts=forecasts,
+    )
+
+    non_breach_loss = (
+        0.020 / 0.030
+        + log(0.030)
+        - 1.0
+    )
+    breach_tail_penalty = (
+        (0.030 - 0.020)
+        / (
+            (1.0 - 0.95)
+            * 0.030
+        )
+    )
+    breach_loss = (
+        non_breach_loss
+        + breach_tail_penalty
+    )
+
+    assert result.index.equals(forecasts.index)
+
+    assert result[
+        "fz0_loss"
+    ].to_numpy() == pytest.approx(
+        [
+            non_breach_loss,
+            non_breach_loss,
+            breach_loss,
+        ]
+    )
+
+    assert non_breach_loss == pytest.approx(
+        -3.839891743
+    )
+    assert breach_tail_penalty == pytest.approx(
+        6.666666667
+    )
+    assert breach_loss == pytest.approx(
+        2.826774924
+    )
+
+
+def test_fz0_losses_require_strictly_positive_es(
+) -> None:
+    """FZ0 scoring requires a positive Expected Shortfall scale."""
+
+    forecasts = _create_fz0_forecasts()
+    forecasts["value_at_risk"] = 0.0
+    forecasts["expected_shortfall"] = 0.0
+    forecasts["var_exceedance"] = (
+        forecasts["realized_loss"]
+        > forecasts["value_at_risk"]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="strictly positive",
+    ):
+        calculate_fz0_losses(
+            forecasts=forecasts,
+        )
+
+
+def test_fz0_loss_summary_matches_manual_example(
+) -> None:
+    """Mean FZ0 loss matches a controlled manual calculation."""
+
+    forecasts = _create_fz0_forecasts()
+
+    result = summarize_fz0_loss(
+        forecasts=forecasts,
+    )
+
+    non_breach_loss = (
+        0.020 / 0.030
+        + log(0.030)
+        - 1.0
+    )
+    breach_tail_penalty = (
+        (0.030 - 0.020)
+        / (
+            (1.0 - 0.95)
+            * 0.030
+        )
+    )
+    expected_mean = (
+        non_breach_loss
+        + breach_tail_penalty / 3.0
+    )
+
+    assert result.loc[
+        0.95,
+        "observation_count",
+    ] == 3
+    assert result.loc[
+        0.95,
+        "mean_fz0_loss",
+    ] == pytest.approx(expected_mean)
+
+
+def test_model_fz0_loss_ranks_aligned_models(
+) -> None:
+    """Aligned models are ranked by their mean joint FZ0 loss."""
+
+    rolling_forecasts = _create_fz0_forecasts(
+        value_at_risk=0.020,
+        expected_shortfall=0.030,
+    )
+    ewma_forecasts = _create_fz0_forecasts(
+        value_at_risk=0.025,
+        expected_shortfall=0.035,
+    )
+    filtered_forecasts = _create_fz0_forecasts(
+        value_at_risk=0.021,
+        expected_shortfall=0.031,
+    )
+
+    result = evaluate_models_fz0_loss(
+        forecasts_by_model={
+            "rolling_gaussian": rolling_forecasts,
+            "ewma_gaussian": ewma_forecasts,
+            "filtered_historical": (
+                filtered_forecasts
+            ),
+        }
+    )
+
+    def expected_mean_fz0(
+        value_at_risk: float,
+        expected_shortfall: float,
+    ) -> float:
+        """Calculate the controlled three-session mean FZ0 loss."""
+
+        non_breach_loss = (
+            value_at_risk / expected_shortfall
+            + log(expected_shortfall)
+            - 1.0
+        )
+        tail_penalty = (
+            (0.030 - value_at_risk)
+            / (
+                (1.0 - 0.95)
+                * expected_shortfall
+            )
+        )
+        return (
+            non_breach_loss
+            + tail_penalty / 3.0
+        )
+
+    assert result.index.names == [
+        "model",
+        "confidence_level",
+    ]
+    assert result.loc[
+        ("rolling_gaussian", 0.95),
+        "mean_fz0_loss",
+    ] == pytest.approx(
+        expected_mean_fz0(0.020, 0.030)
+    )
+    assert result.loc[
+        ("ewma_gaussian", 0.95),
+        "mean_fz0_loss",
+    ] == pytest.approx(
+        expected_mean_fz0(0.025, 0.035)
+    )
+    assert result.loc[
+        ("filtered_historical", 0.95),
+        "mean_fz0_loss",
+    ] == pytest.approx(
+        expected_mean_fz0(0.021, 0.031)
+    )
+
+    assert result.loc[
+        ("ewma_gaussian", 0.95),
+        "fz0_loss_rank",
+    ] == 1
+    assert result.loc[
+        ("filtered_historical", 0.95),
+        "fz0_loss_rank",
+    ] == 2
+    assert result.loc[
+        ("rolling_gaussian", 0.95),
+        "fz0_loss_rank",
+    ] == 3
+
+
+def test_model_fz0_loss_rejects_misaligned_index(
+) -> None:
+    """FZ0 comparisons require identical ordered forecast rows."""
+
+    rolling_forecasts = _create_fz0_forecasts()
+    ewma_forecasts = _create_fz0_forecasts(
+        value_at_risk=0.025,
+        expected_shortfall=0.035,
+    ).iloc[::-1]
+
+    with pytest.raises(
+        ValueError,
+        match="same ordered forecast index",
+    ):
+        evaluate_models_fz0_loss(
+            forecasts_by_model={
+                "rolling_gaussian": rolling_forecasts,
+                "ewma_gaussian": ewma_forecasts,
+            }
+        )
+
+
+def test_model_fz0_loss_rejects_different_losses(
+) -> None:
+    """FZ0 comparisons require identical realized losses."""
+
+    rolling_forecasts = _create_fz0_forecasts()
+    ewma_forecasts = _create_fz0_forecasts(
+        value_at_risk=0.025,
+        expected_shortfall=0.035,
+    )
+    ewma_forecasts.iloc[
+        0,
+        ewma_forecasts.columns.get_loc(
+            "realized_loss"
+        ),
+    ] += 0.001
+    ewma_forecasts["var_exceedance"] = (
+        ewma_forecasts["realized_loss"]
+        > ewma_forecasts["value_at_risk"]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="identical realized losses",
+    ):
+        evaluate_models_fz0_loss(
+            forecasts_by_model={
+                "rolling_gaussian": rolling_forecasts,
+                "ewma_gaussian": ewma_forecasts,
+            }
+        )
+
+
+def test_model_fz0_loss_rejects_empty_mapping(
+) -> None:
+    """At least one model is required for joint FZ0 ranking."""
+
+    with pytest.raises(
+        ValueError,
+        match="At least one model",
+    ):
+        evaluate_models_fz0_loss(
+            forecasts_by_model={},
         )
