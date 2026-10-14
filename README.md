@@ -183,9 +183,13 @@ is a Basel-style research diagnostic rather than a claim of regulatory
 compliance.
 
 Each run saves `basel_traffic_light_path.csv`,
-`basel_traffic_light_summary.csv`, and `metadata.json` under a versioned
-directory in `data/evaluations/`. The detailed path stores textual zone labels
-rather than presentation colours. The compact summary reports latest and
-worst zones, maximum exception counts and dates, zone counts and rates, and
-first amber and red dates. Metadata records the thresholds, official Basel
-reference, source snapshots, and both CSV checksums.
+`basel_traffic_light_summary.csv`, `basel_traffic_light.png`,
+`basel_traffic_light.svg`, and `metadata.json` under a versioned directory in
+`data/evaluations/`. The detailed path stores textual zone labels rather than
+presentation colours. The compact summary reports latest and worst zones,
+maximum exception counts and dates, zone counts and rates, and first amber and
+red dates. The publication figure presents the three model paths in aligned
+panels with shared axes, directly labelled zones, and visible five- and
+ten-exception boundaries. Metadata records the thresholds, figure design,
+official Basel reference, source snapshots, and checksums for both CSVs and
+both figures.

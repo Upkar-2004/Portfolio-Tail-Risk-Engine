@@ -1,14 +1,13 @@
 # Project Checkpoints
 
-Last updated: 2026-10-13
+Last updated: 2026-10-14
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
 **Current phase:** Statistical evaluation and uncertainty quantification
 
-**Next checkpoint:** Create and verify the professional three-panel Basel-style
-traffic-light figure, then begin predeclared subperiod analysis without
-changing the completed full-sample comparison protocol.
+**Next checkpoint:** Define and implement the predeclared subperiod analysis
+without changing the completed full-sample comparison protocol.
 
 ## 1. Project definition and research scope
 
@@ -214,12 +213,17 @@ changing the completed full-sample comparison protocol.
   classifier, rolling paths, and compact multi-model summary.
 - [x] Add and test the checksum-verified traffic-light report command.
 - [x] Generate the baseline traffic-light report as snapshot
-  `20261014T021548912404Z_baseline_11_asset_basel_traffic_light`; the detailed
+  `20261014T144750865418Z_baseline_11_asset_basel_traffic_light`; the detailed
   path CSV SHA-256 is
   `849364f36415cb0f4c83be76d7a8e61630b4e4cc78e463aa3be6328c44589771`
   and the summary CSV SHA-256 is
-  `336bc10f1687181a8c8193a261480ef608e17f6e4d1049d5507a46eb03f3cafd`.
-- [ ] Create and verify the three-panel traffic-light timeline figure.
+  `336bc10f1687181a8c8193a261480ef608e17f6e4d1049d5507a46eb03f3cafd`;
+  its 300-DPI PNG SHA-256 is
+  `b99d08253bddc7e58a9bbf258e57d74137620209cd59a288d188effd0a21ff4a`
+  and its SVG SHA-256 is
+  `ec0c52e070ec41b6bf0f50ab1846da9496dfc2279286ace6711e1d81296df53e`.
+- [x] Create and visually verify the professional three-panel traffic-light
+  timeline figure with shared axes, direct zone labels, and threshold lines.
 
 ## 13. C++ numerical simulation core
 

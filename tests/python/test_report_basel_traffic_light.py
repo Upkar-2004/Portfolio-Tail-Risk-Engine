@@ -219,7 +219,13 @@ def test_save_basel_traffic_light_report_writes_verified_files(
         for model_name in model_names
     }
 
-    paths_path, summary_path, metadata_path = (
+    (
+        paths_path,
+        summary_path,
+        png_path,
+        svg_path,
+        metadata_path,
+    ) = (
         report_module.save_basel_traffic_light_report(
             paths=paths,
             summary=summary,
@@ -239,6 +245,8 @@ def test_save_basel_traffic_light_report_writes_verified_files(
 
     assert paths_path.exists()
     assert summary_path.exists()
+    assert png_path.exists()
+    assert svg_path.exists()
     assert metadata_path.exists()
     assert len(pd.read_csv(paths_path)) == 4
     assert len(pd.read_csv(summary_path)) == 2
@@ -256,6 +264,11 @@ def test_save_basel_traffic_light_report_writes_verified_files(
         pytest.approx(0.99)
     )
     assert metadata["report"]["window_observations"] == 250
+    assert metadata["report"]["figure"]["thresholds"] == [
+        5,
+        10,
+    ]
+    assert metadata["report"]["figure"]["png_dpi"] == 300
     assert metadata["report"]["zones"] == {
         "green": {
             "minimum_exceptions": 0,
@@ -281,6 +294,16 @@ def test_save_basel_traffic_light_report_writes_verified_files(
         "output"
     ]["summary"]["file"]["sha256"] == (
         calculate_file_sha256(summary_path)
+    )
+    assert metadata[
+        "output"
+    ]["figure"]["png"]["sha256"] == (
+        calculate_file_sha256(png_path)
+    )
+    assert metadata[
+        "output"
+    ]["figure"]["svg"]["sha256"] == (
+        calculate_file_sha256(svg_path)
     )
 
 

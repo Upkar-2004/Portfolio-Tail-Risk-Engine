@@ -1614,6 +1614,30 @@ Basel rules refer to defined actual and hypothetical trading outcomes within a
 bank's regulatory backtesting programme. This research engine instead compares
 its documented portfolio-loss series with model VaR forecasts.
 
+#### 8.8.1 Comparative timeline figure
+
+The report visualizes the same tested rolling counts
+$N_{m,t}^{(250)}$ in three vertically aligned panels, ordered as rolling
+Gaussian, EWMA Gaussian, and filtered historical simulation. Every panel uses
+the same calendar axis and exception-count axis. Consequently, differences in
+the height and persistence of the paths are genuine model differences rather
+than artefacts of panel-specific scaling.
+
+The line is drawn as a step path because the count changes discretely when an
+old observation leaves and a new observation enters the 250-session window.
+Horizontal boundaries at five and ten exceptions mark entry into the amber and
+red zones. Light background bands encode the three zones, while the textual
+labels ``GREEN 0–4``, ``AMBER 5–9``, and ``RED 10+`` ensure that interpretation
+does not depend on colour alone. Each panel also states its maximum count and
+date and its latest count and zone. The raster output is saved at 300 DPI for
+documents, and the SVG preserves vector lines and text for publication use.
+
+The figure is descriptive. It does not add observations, alter the exception
+definition, or create another hypothesis test. Its source data are the saved
+traffic-light path and summary tables, and the report metadata stores the
+palette, thresholds, panel order, output filenames, and SHA-256 checksums so
+the displayed result remains reproducible.
+
 ## 9. Decisions still to be finalized
 
 The following choices remain open and must be documented before the relevant experiments begin:

@@ -19,6 +19,10 @@ from tailrisk.evaluation import (
     summarize_models_basel_traffic_light,
 )
 from tailrisk.portfolio import load_portfolio_path
+from tailrisk.visualization import (
+    BASEL_TRAFFIC_LIGHT_PALETTE,
+    save_basel_traffic_light_figure,
+)
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -182,8 +186,8 @@ def save_basel_traffic_light_report(
     snapshot_id: str,
     generated_at: datetime,
     experiment_name: str,
-) -> tuple[Path, Path, Path]:
-    """Save versioned traffic-light paths, summary, and metadata."""
+) -> tuple[Path, Path, Path, Path, Path]:
+    """Save versioned tables, figures, metadata, and checksums."""
 
     if not isinstance(paths, pd.DataFrame):
         raise TypeError(
@@ -292,6 +296,14 @@ def save_basel_traffic_light_report(
         summary_path,
         index=True,
     )
+    png_path = report_directory / "basel_traffic_light.png"
+    svg_path = report_directory / "basel_traffic_light.svg"
+    save_basel_traffic_light_figure(
+        traffic_light_paths=paths,
+        summary=summary,
+        png_output_path=png_path,
+        svg_output_path=svg_path,
+    )
 
     source_records: dict[str, dict[str, str]] = {}
 
@@ -355,6 +367,20 @@ def save_basel_traffic_light_report(
                     "inforce/2022-01-01/published/2019-12-15"
                 ),
             },
+            "figure": {
+                "panel_order": path_models,
+                "shared_time_axis": True,
+                "shared_exception_count_axis": True,
+                "line": "rolling_250_session_exception_count",
+                "thresholds": [5, 10],
+                "zone_labels": [
+                    "GREEN  0–4",
+                    "AMBER  5–9",
+                    "RED  10+",
+                ],
+                "palette": BASEL_TRAFFIC_LIGHT_PALETTE,
+                "png_dpi": 300,
+            },
         },
         "source_backtests": source_records,
         "output": {
@@ -387,6 +413,20 @@ def save_basel_traffic_light_report(
                     ),
                 },
             },
+            "figure": {
+                "png": {
+                    "name": png_path.name,
+                    "sha256": calculate_file_sha256(
+                        png_path
+                    ),
+                },
+                "svg": {
+                    "name": svg_path.name,
+                    "sha256": calculate_file_sha256(
+                        svg_path
+                    ),
+                },
+            },
         },
     }
 
@@ -404,7 +444,13 @@ def save_basel_traffic_light_report(
         )
         stream.write("\n")
 
-    return paths_path, summary_path, metadata_path
+    return (
+        paths_path,
+        summary_path,
+        png_path,
+        svg_path,
+        metadata_path,
+    )
 
 
 def main() -> None:
@@ -479,7 +525,13 @@ def main() -> None:
             "basel_traffic_light"
         )
 
-    paths_path, summary_path, metadata_path = (
+    (
+        paths_path,
+        summary_path,
+        png_path,
+        svg_path,
+        metadata_path,
+    ) = (
         save_basel_traffic_light_report(
             paths=paths,
             summary=summary,
@@ -503,6 +555,8 @@ def main() -> None:
     print()
     print("Saved traffic-light path:", paths_path)
     print("Saved traffic-light summary:", summary_path)
+    print("Saved traffic-light PNG figure:", png_path)
+    print("Saved traffic-light SVG figure:", svg_path)
     print("Saved metadata:", metadata_path)
 
 
