@@ -238,8 +238,18 @@ comparison protocol.
   without adding subperiod HAC inference or hypothesis decisions.
 - [x] Implement and test the descriptive subperiod predictive-accuracy table.
 - [x] Add and test a checksum-verified subperiod report command.
-- [ ] Generate and verify the baseline subperiod tables before designing the
-  associated figures.
+- [x] Generate and verify the baseline subperiod tables as snapshot
+  `20261014T170317535380Z_baseline_11_asset_subperiod_analysis` before
+  designing the associated figures. The definitions CSV SHA-256 is
+  `b8a4426d4f3727dae8a296558785f7feb0e3d7e869a28d25f3d807afade3d09a`,
+  the VaR-coverage CSV SHA-256 is
+  `9606b71649b728819beb86ec40ff5b4ab98fb7670ef7934af31be43f6383421f`,
+  the ES-tail-severity CSV SHA-256 is
+  `6626e622b70b6628f5d048e0523a344ee6e6262e5acd02736c3fcfd58bf96ab5`,
+  the joint-calibration CSV SHA-256 is
+  `002476b17a5b278a4d3db2e92795e4c57c790e9e2c8fb2af1dae204796866d78`,
+  and the predictive-accuracy CSV SHA-256 is
+  `955d38d4e7659d96981bd2e535d3a50a70e7c937cbed59b03b425bdad79e795c`.
 - [ ] Create and visually verify the professional subperiod figures.
 
 ## 13. C++ numerical simulation core
