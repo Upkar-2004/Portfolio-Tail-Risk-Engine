@@ -237,7 +237,7 @@ comparison protocol.
 - [x] Implement and test the descriptive subperiod joint-calibration table
   without adding subperiod HAC inference or hypothesis decisions.
 - [x] Implement and test the descriptive subperiod predictive-accuracy table.
-- [ ] Add and test a checksum-verified subperiod report command.
+- [x] Add and test a checksum-verified subperiod report command.
 - [ ] Generate and verify the baseline subperiod tables before designing the
   associated figures.
 - [ ] Create and visually verify the professional subperiod figures.

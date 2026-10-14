@@ -193,3 +193,27 @@ panels with shared axes, directly labelled zones, and visible five- and
 ten-exception boundaries. Metadata records the thresholds, figure design,
 official Basel reference, source snapshots, and checksums for both CSVs and
 both figures.
+
+## Descriptive subperiod analysis
+
+Generate all five predeclared calendar-year and NBER-period tables together:
+
+```bash
+.venv/bin/python scripts/report_subperiod_analysis.py \
+  data/portfolio/20260825T162125895465Z_baseline_11_asset \
+  data/backtests/20261005T021450532620Z_baseline_11_asset_rolling_gaussian_monte_carlo \
+  data/backtests/20261006T151840866317Z_baseline_11_asset_ewma_gaussian_monte_carlo \
+  data/backtests/20261011T112940733142Z_baseline_11_asset_filtered_historical_simulation
+```
+
+The command verifies the source checksums and shared portfolio lineage before
+creating `subperiod_definitions.csv`, `subperiod_var_coverage.csv`,
+`subperiod_es_tail_severity.csv`, `subperiod_joint_calibration.csv`, and
+`subperiod_predictive_accuracy.csv` in one new, non-overwriting directory
+under `data/evaluations/`. Its metadata records every output checksum, the
+fixed 2012–2025 calendar and February–April 2020 NBER rules, pointwise exact
+interval status, sparse-tail thresholds, and within-period scoring rules.
+
+This report is a descriptive secondary analysis. It adds no subperiod
+hypothesis tests, rejection decisions, or multiple-testing family; the
+completed full-sample inference remains primary.
