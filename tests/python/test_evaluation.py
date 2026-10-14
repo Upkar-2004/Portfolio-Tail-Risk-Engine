@@ -24,6 +24,7 @@ from tailrisk.evaluation import (
     evaluate_models_fz0_loss,
     evaluate_models_diebold_mariano,
     evaluate_models_subperiod_es_tail_severity,
+    evaluate_models_subperiod_predictive_accuracy,
     evaluate_models_subperiod_var_es_identification,
     evaluate_models_var_quantile_loss,
     evaluate_models_subperiod_var_coverage,
@@ -952,6 +953,156 @@ def test_subperiod_joint_calibration_rejects_es_below_var(
         match="at least as large as VaR",
     ):
         evaluate_models_subperiod_var_es_identification(
+            forecasts_by_model=forecasts_by_model,
+        )
+
+
+def test_subperiod_predictive_accuracy_matches_manual_scores(
+) -> None:
+    """Mean quantile and FZ0 scores match a controlled calendar year."""
+
+    result = evaluate_models_subperiod_predictive_accuracy(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+    row = result.loc[
+        (
+            "calendar_2012",
+            "model_a",
+            0.95,
+        )
+    ]
+    expected_quantile_loss = (
+        5 * 0.95 * 0.5
+        + 95 * 0.05 * 1.0
+    ) / 100
+    non_exception_fz0 = (
+        2.0 / 3.0
+        + log(3.0)
+        - 1.0
+    )
+    exception_fz0 = (
+        0.5 / (0.05 * 3.0)
+        + 0.5 / 3.0
+        + log(3.0)
+        - 1.0
+    )
+    expected_fz0_loss = (
+        5 * exception_fz0
+        + 95 * non_exception_fz0
+    ) / 100
+
+    assert row["observation_count"] == 100
+    assert row["mean_var_quantile_loss"] == pytest.approx(
+        expected_quantile_loss
+    )
+    assert row["mean_fz0_loss"] == pytest.approx(
+        expected_fz0_loss
+    )
+
+
+def test_subperiod_predictive_accuracy_ranks_models_and_ties(
+) -> None:
+    """Lower period scores rank first and exact ties retain rank one."""
+
+    result = evaluate_models_subperiod_predictive_accuracy(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+
+    for score_rank in (
+        "var_quantile_loss_rank",
+        "fz0_loss_rank",
+    ):
+        assert result.loc[
+            ("calendar_2012", "model_c", 0.95),
+            score_rank,
+        ] == 1
+        assert result.loc[
+            ("calendar_2012", "model_a", 0.95),
+            score_rank,
+        ] == 2
+        assert result.loc[
+            ("calendar_2012", "model_b", 0.95),
+            score_rank,
+        ] == 3
+        assert result.xs(
+            ("calendar_2013", 0.95),
+            level=("period_id", "confidence_level"),
+        )[score_rank].eq(1).all()
+
+
+def test_subperiod_predictive_accuracy_is_descriptive_only(
+) -> None:
+    """The table contains every period and no inferential output."""
+
+    result = evaluate_models_subperiod_predictive_accuracy(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+
+    assert len(result) == 15 * 3 * 2
+    assert list(result.index.names) == [
+        "period_id",
+        "model",
+        "confidence_level",
+    ]
+    assert not any(
+        "hac" in column
+        or "p_value" in column
+        or "reject" in column
+        or "test_statistic" in column
+        for column in result.columns
+    )
+
+
+def test_subperiod_predictive_accuracy_retains_sparse_context(
+) -> None:
+    """The NBER case study and rare-tail warnings accompany scores."""
+
+    result = evaluate_models_subperiod_predictive_accuracy(
+        forecasts_by_model=(
+            _create_subperiod_coverage_forecasts()
+        ),
+    )
+    recession = result.loc[
+        (
+            "nber_recession_2020",
+            "model_a",
+            0.99,
+        )
+    ]
+
+    assert recession["period_type"] == "nber_recession"
+    assert 0 < recession["observation_count"] < 100
+    assert bool(recession["sparse_expected_tail"])
+    assert bool(recession["sparse_observed_tail"])
+    assert pd.notna(recession["mean_var_quantile_loss"])
+    assert pd.notna(recession["mean_fz0_loss"])
+
+
+def test_subperiod_predictive_accuracy_rejects_bad_indicator(
+) -> None:
+    """Period scores require indicators consistent with strict breaches."""
+
+    forecasts_by_model = (
+        _create_subperiod_coverage_forecasts()
+    )
+    forecasts_by_model["model_a"].iloc[
+        0,
+        forecasts_by_model["model_a"].columns.get_loc(
+            "var_exceedance"
+        ),
+    ] = False
+
+    with pytest.raises(
+        ValueError,
+        match="must agree",
+    ):
+        evaluate_models_subperiod_predictive_accuracy(
             forecasts_by_model=forecasts_by_model,
         )
 

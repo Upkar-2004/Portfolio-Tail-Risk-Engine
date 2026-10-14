@@ -1750,6 +1750,176 @@ def evaluate_models_subperiod_var_es_identification(
 
 
 
+def evaluate_models_subperiod_predictive_accuracy(
+    forecasts_by_model: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Summarize descriptive predictive accuracy by subperiod.
+
+    Mean VaR quantile loss and joint VaR-ES FZ0 loss are calculated
+    on the common observations in each predeclared calendar or NBER
+    period. Lower scores receive better within-period, within-level
+    ranks. Exact ties retain the same minimum rank. The result is
+    descriptive and contains no hypothesis tests or decisions.
+    """
+
+    definitions = create_subperiod_definitions(
+        forecasts_by_model=forecasts_by_model,
+    )
+    records: list[
+        dict[str, bool | float | int | str | pd.Timestamp]
+    ] = []
+
+    for period_id, definition in definitions.iterrows():
+        requested_start = pd.Timestamp(
+            definition["requested_start_date"]
+        )
+        requested_end = pd.Timestamp(
+            definition["requested_end_date"]
+        )
+        period_forecasts_by_model: dict[
+            str,
+            pd.DataFrame,
+        ] = {}
+
+        for model_name, forecasts in (
+            forecasts_by_model.items()
+        ):
+            forecast_dates = (
+                forecasts.index.get_level_values(
+                    "forecast_date"
+                )
+            )
+            period_mask = (
+                (forecast_dates >= requested_start)
+                & (forecast_dates <= requested_end)
+            )
+            period_forecasts_by_model[model_name] = (
+                forecasts.loc[period_mask]
+            )
+
+        quantile_summary = (
+            evaluate_models_var_quantile_loss(
+                forecasts_by_model=(
+                    period_forecasts_by_model
+                ),
+            )
+        )
+        fz0_summary = evaluate_models_fz0_loss(
+            forecasts_by_model=period_forecasts_by_model,
+        )
+
+        if not quantile_summary.index.equals(
+            fz0_summary.index
+        ):
+            raise RuntimeError(
+                "Subperiod score summaries must use the same "
+                "model-confidence index."
+            )
+
+        for (
+            model_name,
+            confidence_level,
+        ), quantile_row in quantile_summary.iterrows():
+            fz0_row = fz0_summary.loc[
+                (
+                    model_name,
+                    confidence_level,
+                )
+            ]
+            observation_count = int(
+                quantile_row["observation_count"]
+            )
+
+            if (
+                observation_count
+                != int(fz0_row["observation_count"])
+                or observation_count
+                != int(definition["observation_count"])
+            ):
+                raise ValueError(
+                    "Subperiod observation counts must agree "
+                    "with the period definitions and score "
+                    "summaries."
+                )
+
+            confidence_level = float(confidence_level)
+            expected_count = (
+                observation_count
+                * (1.0 - confidence_level)
+            )
+            level_forecasts = (
+                period_forecasts_by_model[model_name]
+                .xs(
+                    confidence_level,
+                    level="confidence_level",
+                )
+            )
+            observed_count = int(
+                level_forecasts["var_exceedance"].sum()
+            )
+
+            records.append(
+                {
+                    "period_id": str(period_id),
+                    "model": model_name,
+                    "confidence_level": confidence_level,
+                    "period_type": str(
+                        definition["period_type"]
+                    ),
+                    "first_forecast_date": pd.Timestamp(
+                        definition[
+                            "first_forecast_date"
+                        ]
+                    ),
+                    "last_forecast_date": pd.Timestamp(
+                        definition[
+                            "last_forecast_date"
+                        ]
+                    ),
+                    "observation_count": observation_count,
+                    "is_partial": bool(
+                        definition["is_partial"]
+                    ),
+                    "expected_exceedance_count": (
+                        expected_count
+                    ),
+                    "var_exceedance_count": observed_count,
+                    "mean_var_quantile_loss": float(
+                        quantile_row[
+                            "mean_var_quantile_loss"
+                        ]
+                    ),
+                    "var_quantile_loss_rank": int(
+                        quantile_row[
+                            "var_quantile_loss_rank"
+                        ]
+                    ),
+                    "mean_fz0_loss": float(
+                        fz0_row["mean_fz0_loss"]
+                    ),
+                    "fz0_loss_rank": int(
+                        fz0_row["fz0_loss_rank"]
+                    ),
+                    "sparse_expected_tail": bool(
+                        expected_count < 5.0
+                    ),
+                    "sparse_observed_tail": bool(
+                        observed_count < 5
+                    ),
+                }
+            )
+
+    return pd.DataFrame.from_records(records).set_index(
+        [
+            "period_id",
+            "model",
+            "confidence_level",
+        ]
+    )
+
+
+
+
 def calculate_var_quantile_losses(
     forecasts: pd.DataFrame,
 ) -> pd.DataFrame:
