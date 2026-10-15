@@ -1817,9 +1817,31 @@ negative blue cells mean fewer exceptions and possible conservatism. A note
 explicitly warns that the plot is descriptive and that sparse tail counts can
 produce large deviations, especially at 99% VaR.
 
-Remaining planned figures are an observed-versus-expected exception-count
-display with pointwise exact intervals and predictive-score rank heatmaps.
-Their designs likewise follow only from the validated tables.
+The second implemented figure shows observed exception rates with pointwise
+95% Clopper-Pearson exact binomial intervals. The three upper panels contain
+calendar years at 95%, 97.5%, and 99% VaR. A separate lower row contains the
+overlapping NBER contraction because its 62-session sample creates wider
+intervals and requires a different horizontal scale. The 95%, 97.5%, and 99%
+calendar panels use fitted upper limits of 20%, 16%, and 12.5%, respectively,
+so rare-event estimates are not compressed. All recession panels share a
+0%-40% axis, preserving direct comparability within the stress row. A small
+unlabelled negative margin prevents zero-exception markers from being clipped;
+the first displayed tick remains 0%. Model identity is encoded by a fixed
+colorblind-safe color and marker combination, while a dashed vertical line
+marks the relevant nominal exception probability. Alternating annual-row
+shading supports horizontal tracking. Every panel also includes the central
+95% binomial reference range implied by its nominal probability: annual panels
+use 252 reference sessions and stress panels use 62. These pale-green regions
+are visual benchmarks only; the plotted Clopper-Pearson interval for each
+estimate uses its actual period sample size. Recession estimates are labelled
+with observed-count/sample-size pairs, positioned beyond the upper interval
+bound.
+The figure states that the intervals are non-simultaneous and
+non-multiplicity-adjusted; it therefore supplies uncertainty context without
+creating an additional visual pass-or-fail rule.
+
+The remaining planned figures are predictive-score rank heatmaps. Their
+designs likewise follow only from the validated tables.
 
 Metadata identifies the report as `descriptive_secondary_analysis`, retains
 the source-backtest snapshot identifiers and checksums, records the complete

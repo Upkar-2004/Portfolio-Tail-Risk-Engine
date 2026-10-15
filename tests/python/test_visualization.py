@@ -10,10 +10,13 @@ from tailrisk.models import calculate_gaussian_var_es
 from tailrisk.simulation import calculate_empirical_var_es
 from tailrisk.visualization import (
     create_basel_traffic_light_figure,
+    create_subperiod_exception_interval_figure,
     create_subperiod_exception_rate_figure,
+    prepare_subperiod_exception_interval_tables,
     prepare_subperiod_exception_rate_matrices,
     save_basel_traffic_light_figure,
     save_gaussian_tail_risk_figure,
+    save_subperiod_exception_interval_figure,
     save_subperiod_exception_rate_figure,
 )
 
@@ -101,8 +104,17 @@ def _create_subperiod_coverage_table() -> pd.DataFrame:
             "confidence_level",
         ],
     )
-    row_numbers = np.arange(len(index), dtype=float)
-    deviations = (row_numbers - 67.0) / 1_000.0
+    row_numbers = np.arange(len(index), dtype=int)
+    observation_counts = np.full(len(index), 250)
+    exception_counts = (row_numbers % 15) + 1
+    observed_rates = (
+        exception_counts / observation_counts
+    )
+    confidence_values = index.get_level_values(
+        "confidence_level"
+    ).to_numpy(dtype=float)
+    nominal_rates = 1.0 - confidence_values
+    deviations = observed_rates - nominal_rates
     period_types = [
         (
             "nber_recession"
@@ -115,7 +127,20 @@ def _create_subperiod_coverage_table() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "period_type": period_types,
+            "observation_count": observation_counts,
+            "nominal_exceedance_rate": nominal_rates,
+            "observed_exceedance_count": exception_counts,
+            "observed_exceedance_rate": observed_rates,
             "observed_minus_expected_rate": deviations,
+            "interval_confidence_level": 0.95,
+            "exact_interval_lower_bound": np.maximum(
+                0.0,
+                observed_rates - 0.01,
+            ),
+            "exact_interval_upper_bound": np.minimum(
+                1.0,
+                observed_rates + 0.02,
+            ),
         },
         index=index,
     )
@@ -384,3 +409,160 @@ def test_save_subperiod_exception_rate_figure_creates_png_and_svg(
     svg_text = svg_path.read_text(encoding="utf-8")
     assert "<svg" in svg_text
     assert "NBER recession" in svg_text
+
+
+def test_prepare_subperiod_exception_interval_tables_maps_rows(
+) -> None:
+    """Interval inputs retain fixed period and model ordering."""
+
+    coverage = _create_subperiod_coverage_table()
+    original = coverage.copy(deep=True)
+    calendar, recession = (
+        prepare_subperiod_exception_interval_tables(
+            coverage
+        )
+    )
+
+    assert list(calendar) == [0.95, 0.975, 0.99]
+    assert calendar[0.95].shape == (42, 6)
+    assert recession[0.99].shape == (3, 6)
+    assert calendar[0.975].loc[
+        (
+            "calendar_2018",
+            "ewma_gaussian_monte_carlo",
+        ),
+        "observed_exceedance_rate",
+    ] == coverage.loc[
+        (
+            "calendar_2018",
+            "ewma_gaussian_monte_carlo",
+            0.975,
+        ),
+        "observed_exceedance_rate",
+    ]
+    pd.testing.assert_frame_equal(coverage, original)
+
+
+def test_create_subperiod_exception_interval_figure_uses_panels(
+) -> None:
+    """Calendar and recession intervals use three level panels."""
+
+    coverage = _create_subperiod_coverage_table()
+    figure = create_subperiod_exception_interval_figure(
+        coverage
+    )
+
+    assert len(figure.axes) == 6
+    calendar_axes = figure.axes[:3]
+    recession_axes = figure.axes[3:]
+    assert [
+        axis.get_title()
+        for axis in calendar_axes
+    ] == [
+        "95% VaR",
+        "97.5% VaR",
+        "99% VaR",
+    ]
+    assert calendar_axes[0].get_yticklabels()[0].get_text() == (
+        "2012"
+    )
+    assert all(
+        tick.get_text() == ""
+        for tick in calendar_axes[1].get_yticklabels()
+    )
+    assert [axis.get_xlim() for axis in calendar_axes] == [
+        (-0.004, 0.20),
+        (-0.004, 0.16),
+        (-0.004, 0.125),
+    ]
+    assert all(
+        np.allclose(axis.get_xlim(), (-0.004, 0.40))
+        for axis in recession_axes
+    )
+    assert sum(
+        bool(axis.get_xlabel()) for axis in calendar_axes
+    ) == 1
+    assert sum(
+        bool(axis.get_xlabel()) for axis in recession_axes
+    ) == 1
+    assert all(axis.patches for axis in recession_axes)
+    assert all(
+        any(
+            text.get_text().startswith("nominal ")
+            for text in axis.texts
+        )
+        for axis in calendar_axes
+    )
+    assert all(
+        "Nominal" not in text.get_text()
+        for axis in figure.axes
+        for text in axis.texts
+    )
+
+    for calendar_axis, expected_target in zip(
+        calendar_axes,
+        [0.05, 0.025, 0.01],
+        strict=True,
+    ):
+        target_lines = [
+            line
+            for line in calendar_axis.lines
+            if len(line.get_xdata()) == 2
+            and np.allclose(
+                line.get_xdata(),
+                expected_target,
+            )
+        ]
+        assert len(target_lines) == 1
+
+
+def test_prepare_subperiod_exception_intervals_rejects_bad_rate(
+) -> None:
+    """Observed rates must agree with their exception counts."""
+
+    coverage = _create_subperiod_coverage_table()
+    coverage.loc[
+        (
+            "calendar_2019",
+            "ewma_gaussian_monte_carlo",
+            0.99,
+        ),
+        "observed_exceedance_rate",
+    ] = 0.50
+
+    with pytest.raises(
+        ValueError,
+        match="must equal exception counts",
+    ):
+        prepare_subperiod_exception_interval_tables(
+            coverage
+        )
+
+
+def test_save_subperiod_exception_interval_figure_creates_formats(
+    tmp_path: Path,
+) -> None:
+    """The exact interval figure is saved as PNG and SVG."""
+
+    coverage = _create_subperiod_coverage_table()
+    png_path = tmp_path / "subperiod_exception_intervals.png"
+    svg_path = tmp_path / "subperiod_exception_intervals.svg"
+
+    saved_png, saved_svg = (
+        save_subperiod_exception_interval_figure(
+            var_coverage=coverage,
+            png_output_path=png_path,
+            svg_output_path=svg_path,
+        )
+    )
+
+    assert saved_png == png_path
+    assert saved_svg == svg_path
+    assert png_path.stat().st_size > 25_000
+    assert svg_path.stat().st_size > 25_000
+    assert png_path.read_bytes().startswith(
+        b"\x89PNG\r\n\x1a\n"
+    )
+    svg_text = svg_path.read_text(encoding="utf-8")
+    assert "<svg" in svg_text
+    assert "Clopper-Pearson" in svg_text

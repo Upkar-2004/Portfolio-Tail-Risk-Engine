@@ -67,10 +67,12 @@ def _create_var_coverage() -> pd.DataFrame:
             "confidence_level"
         ).to_numpy(dtype=float)
     )
-    observed_rates = nominal_rates + np.linspace(
-        -0.02,
-        0.08,
-        len(index),
+    observation_counts = np.full(len(index), 250)
+    exception_counts = (
+        np.arange(len(index), dtype=int) % 15
+    ) + 1
+    observed_rates = (
+        exception_counts / observation_counts
     )
     period_types = [
         (
@@ -84,12 +86,21 @@ def _create_var_coverage() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "period_type": period_types,
-            "observation_count": 250,
+            "observation_count": observation_counts,
             "nominal_exceedance_rate": nominal_rates,
-            "observed_exceedance_count": 10,
+            "observed_exceedance_count": exception_counts,
             "observed_exceedance_rate": observed_rates,
             "observed_minus_expected_rate": (
                 observed_rates - nominal_rates
+            ),
+            "interval_confidence_level": 0.95,
+            "exact_interval_lower_bound": np.maximum(
+                0.0,
+                observed_rates - 0.01,
+            ),
+            "exact_interval_upper_bound": np.minimum(
+                1.0,
+                observed_rates + 0.02,
             ),
             "sparse_expected_tail": False,
             "sparse_observed_tail": False,
@@ -190,47 +201,73 @@ def test_save_subperiod_exception_rate_report_writes_lineage(
     )
     output_root = tmp_path / "evaluations"
     publication_root = tmp_path / "publication"
-    (
-        png_path,
-        svg_path,
-        metadata_path,
-        publication_png_path,
-        publication_svg_path,
-    ) = report_module.save_subperiod_exception_rate_report(
-        var_coverage=var_coverage,
-        source_snapshot=snapshot_path,
-        source_metadata=source_metadata,
-        output_root=output_root,
-        publication_root=publication_root,
-        snapshot_id="test_subperiod_exception_rate_figure",
-        generated_at=datetime(
-            2026,
-            10,
-            14,
-            tzinfo=timezone.utc,
-        ),
+    snapshot_paths, metadata_path, publication_paths = (
+        report_module.save_subperiod_exception_rate_report(
+            var_coverage=var_coverage,
+            source_snapshot=snapshot_path,
+            source_metadata=source_metadata,
+            output_root=output_root,
+            publication_root=publication_root,
+            snapshot_id=(
+                "test_subperiod_exception_rate_figures"
+            ),
+            generated_at=datetime(
+                2026,
+                10,
+                14,
+                tzinfo=timezone.utc,
+            ),
+        )
     )
 
     with metadata_path.open("r", encoding="utf-8") as stream:
         metadata = json.load(stream)
 
-    assert png_path.is_file()
-    assert svg_path.is_file()
-    assert publication_png_path.read_bytes() == (
-        png_path.read_bytes()
-    )
-    assert publication_svg_path.read_bytes() == (
-        svg_path.read_bytes()
-    )
+    assert set(snapshot_paths) == {
+        "heatmap_png",
+        "heatmap_svg",
+        "interval_png",
+        "interval_svg",
+    }
+    assert set(publication_paths) == set(snapshot_paths)
+
+    for output_name, snapshot_figure_path in (
+        snapshot_paths.items()
+    ):
+        assert snapshot_figure_path.is_file()
+        assert publication_paths[
+            output_name
+        ].read_bytes() == snapshot_figure_path.read_bytes()
+
     assert metadata["source"]["snapshot_id"] == (
         snapshot_path.name
     )
-    assert metadata["output"]["figure"]["png"][
-        "sha256"
-    ] == calculate_file_sha256(png_path)
-    assert metadata["output"]["figure"]["svg"][
-        "sha256"
-    ] == calculate_file_sha256(svg_path)
+    assert metadata["output"]["figures"]["heatmap"][
+        "png"
+    ]["sha256"] == calculate_file_sha256(
+        snapshot_paths["heatmap_png"]
+    )
+    assert metadata["output"]["figures"][
+        "exact_interval"
+    ]["svg"]["sha256"] == calculate_file_sha256(
+        snapshot_paths["interval_svg"]
+    )
+    assert metadata["report"]["exact_intervals"][
+        "method"
+    ] == "clopper_pearson"
+    assert metadata["report"]["exact_intervals"][
+        "calendar_x_axis_upper_bounds"
+    ] == {
+        "0.95": 0.20,
+        "0.975": 0.16,
+        "0.99": 0.125,
+    }
+    assert metadata["report"]["exact_intervals"][
+        "binomial_reference_bands"
+    ]["reference_observation_counts"] == {
+        "calendar": 252,
+        "nber_recession": 62,
+    }
     assert metadata["report"]["inferential_status"] == (
         "descriptive_only; no visual pass/fail rule"
     )

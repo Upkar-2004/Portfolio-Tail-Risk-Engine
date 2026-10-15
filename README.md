@@ -218,7 +218,8 @@ This report is a descriptive secondary analysis. It adds no subperiod
 hypothesis tests, rejection decisions, or multiple-testing family; the
 completed full-sample inference remains primary.
 
-Generate the first publication subperiod figure from that verified snapshot:
+Generate the publication subperiod exception-rate figures from that verified
+snapshot:
 
 ```bash
 .venv/bin/python scripts/report_subperiod_exception_rates.py \
@@ -227,11 +228,20 @@ Generate the first publication subperiod figure from that verified snapshot:
 
 The command verifies the saved VaR-coverage checksum before plotting. It
 creates a new immutable figure directory under `data/evaluations/`, records
-PNG and SVG checksums plus source lineage, and refreshes the stable tracked
-copies at `reports/figures/subperiod_exception_rate_heatmap.png` and
-`reports/figures/subperiod_exception_rate_heatmap.svg`. The three confidence-
-level panels show observed minus nominal annual exception rates in percentage
-points. The overlapping 62-session February-April 2020 NBER case study is
-kept in a separate strip. Red means more exceptions than nominal; blue means
-fewer. The display is descriptive, and sparse counts—especially at 99%—must
-not be read as a visual hypothesis test.
+PNG and SVG checksums plus source lineage, and refreshes four stable tracked
+copies:
+
+- `reports/figures/subperiod_exception_rate_heatmap.png` and `.svg`;
+- `reports/figures/subperiod_exception_rate_intervals.png` and `.svg`.
+
+The heatmap's three confidence-level panels show observed minus nominal annual
+exception rates in percentage points. The interval figure shows observed
+rates with pointwise 95% Clopper-Pearson exact binomial intervals and dashed
+nominal-rate references. Its annual panels use confidence-level-specific scales
+so the rarer tails remain legible. Pale-green central 95% binomial reference
+ranges use 252 sessions in the annual panels and 62 sessions in the stress
+panels. Both figures keep the overlapping February-April 2020 NBER case study
+separate from the calendar-year panels. These displays are descriptive; their
+pointwise intervals are not simultaneous or multiplicity-adjusted, the
+reference ranges are not new decision rules, and neither figure replaces the
+primary full-sample tests.

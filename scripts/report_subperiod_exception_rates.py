@@ -1,4 +1,4 @@
-"""Generate the descriptive subperiod VaR exception-rate figure."""
+"""Generate the descriptive subperiod VaR exception-rate figures."""
 
 import argparse
 from datetime import datetime, timezone
@@ -14,6 +14,8 @@ import pandas as pd
 from tailrisk.data import calculate_file_sha256
 from tailrisk.visualization import (
     SUBPERIOD_EXCEPTION_RATE_PALETTE,
+    TAIL_RISK_MODEL_STYLES,
+    save_subperiod_exception_interval_figure,
     save_subperiod_exception_rate_figure,
 )
 
@@ -21,7 +23,8 @@ from tailrisk.visualization import (
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _OUTPUT_ROOT = _PROJECT_ROOT / "data" / "evaluations"
 _PUBLICATION_ROOT = _PROJECT_ROOT / "reports" / "figures"
-_FIGURE_STEM = "subperiod_exception_rate_heatmap"
+_HEATMAP_STEM = "subperiod_exception_rate_heatmap"
+_INTERVAL_FIGURE_STEM = "subperiod_exception_rate_intervals"
 _INDEX_NAMES = [
     "period_id",
     "model",
@@ -34,6 +37,9 @@ _REQUIRED_COLUMNS = {
     "observed_exceedance_count",
     "observed_exceedance_rate",
     "observed_minus_expected_rate",
+    "interval_confidence_level",
+    "exact_interval_lower_bound",
+    "exact_interval_upper_bound",
     "sparse_expected_tail",
     "sparse_observed_tail",
 }
@@ -44,8 +50,9 @@ def parse_args() -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Generate a checksum-traced heatmap of calendar-year "
-            "and 2020 NBER-period VaR exception-rate deviations."
+            "Generate checksum-traced heatmap and exact-interval "
+            "figures for calendar-year and 2020 NBER-period VaR "
+            "exception rates."
         )
     )
     parser.add_argument(
@@ -174,7 +181,7 @@ def save_subperiod_exception_rate_report(
     publication_root: str | Path,
     snapshot_id: str,
     generated_at: datetime,
-) -> tuple[Path, Path, Path, Path, Path]:
+) -> tuple[dict[str, Path], Path, dict[str, Path]]:
     """Save immutable figures, metadata, and refreshed stable copies."""
 
     if not isinstance(snapshot_id, str):
@@ -194,12 +201,23 @@ def save_subperiod_exception_rate_report(
         parents=False,
         exist_ok=False,
     )
-    png_path = report_directory / f"{_FIGURE_STEM}.png"
-    svg_path = report_directory / f"{_FIGURE_STEM}.svg"
+    png_path = report_directory / f"{_HEATMAP_STEM}.png"
+    svg_path = report_directory / f"{_HEATMAP_STEM}.svg"
     save_subperiod_exception_rate_figure(
         var_coverage=var_coverage,
         png_output_path=png_path,
         svg_output_path=svg_path,
+    )
+    interval_png_path = (
+        report_directory / f"{_INTERVAL_FIGURE_STEM}.png"
+    )
+    interval_svg_path = (
+        report_directory / f"{_INTERVAL_FIGURE_STEM}.svg"
+    )
+    save_subperiod_exception_interval_figure(
+        var_coverage=var_coverage,
+        png_output_path=interval_png_path,
+        svg_output_path=interval_svg_path,
     )
 
     deviations = var_coverage[
@@ -212,19 +230,33 @@ def save_subperiod_exception_rate_report(
     )
     png_checksum = calculate_file_sha256(png_path)
     svg_checksum = calculate_file_sha256(svg_path)
+    interval_png_checksum = calculate_file_sha256(
+        interval_png_path
+    )
+    interval_svg_checksum = calculate_file_sha256(
+        interval_svg_path
+    )
     publication_root_path = Path(publication_root)
     publication_png_path = (
-        publication_root_path / f"{_FIGURE_STEM}.png"
+        publication_root_path / f"{_HEATMAP_STEM}.png"
     )
     publication_svg_path = (
-        publication_root_path / f"{_FIGURE_STEM}.svg"
+        publication_root_path / f"{_HEATMAP_STEM}.svg"
+    )
+    publication_interval_png_path = (
+        publication_root_path
+        / f"{_INTERVAL_FIGURE_STEM}.png"
+    )
+    publication_interval_svg_path = (
+        publication_root_path
+        / f"{_INTERVAL_FIGURE_STEM}.svg"
     )
     metadata = {
         "schema_version": 1,
         "generated_at_utc": generated_at.isoformat(),
         "experiment": source_metadata.get("experiment"),
         "report": {
-            "name": "subperiod_exception_rate_figure",
+            "name": "subperiod_exception_rate_figures",
             "classification": (
                 "descriptive_secondary_analysis"
             ),
@@ -250,6 +282,34 @@ def save_subperiod_exception_rate_report(
                 "symmetric_limit_rate": color_limit,
                 "palette": SUBPERIOD_EXCEPTION_RATE_PALETTE,
             },
+            "exact_intervals": {
+                "method": "clopper_pearson",
+                "confidence_level": 0.95,
+                "scope": "pointwise_non_simultaneous",
+                "nominal_reference_rates": [
+                    0.05,
+                    0.025,
+                    0.01,
+                ],
+                "calendar_and_recession_scales_are_separate": True,
+                "axis_left_padding_rate": 0.004,
+                "calendar_x_axis_upper_bounds": {
+                    "0.95": 0.20,
+                    "0.975": 0.16,
+                    "0.99": 0.125,
+                },
+                "recession_shared_x_axis": [0.0, 0.40],
+                "binomial_reference_bands": {
+                    "method": "central_binomial_quantiles",
+                    "central_probability": 0.95,
+                    "reference_observation_counts": {
+                        "calendar": 252,
+                        "nber_recession": 62,
+                    },
+                    "purpose": "visual_reference_only",
+                },
+                "model_styles": TAIL_RISK_MODEL_STYLES,
+            },
             "inferential_status": (
                 "descriptive_only; no visual pass/fail rule"
             ),
@@ -271,24 +331,52 @@ def save_subperiod_exception_rate_report(
             },
         },
         "output": {
-            "figure": {
-                "png": {
-                    "name": png_path.name,
-                    "sha256": png_checksum,
+            "figures": {
+                "heatmap": {
+                    "png": {
+                        "name": png_path.name,
+                        "sha256": png_checksum,
+                    },
+                    "svg": {
+                        "name": svg_path.name,
+                        "sha256": svg_checksum,
+                    },
                 },
-                "svg": {
-                    "name": svg_path.name,
-                    "sha256": svg_checksum,
+                "exact_interval": {
+                    "png": {
+                        "name": interval_png_path.name,
+                        "sha256": interval_png_checksum,
+                    },
+                    "svg": {
+                        "name": interval_svg_path.name,
+                        "sha256": interval_svg_checksum,
+                    },
                 },
             },
             "publication_copies": {
-                "png": {
-                    "name": publication_png_path.name,
-                    "sha256": png_checksum,
+                "heatmap": {
+                    "png": {
+                        "name": publication_png_path.name,
+                        "sha256": png_checksum,
+                    },
+                    "svg": {
+                        "name": publication_svg_path.name,
+                        "sha256": svg_checksum,
+                    },
                 },
-                "svg": {
-                    "name": publication_svg_path.name,
-                    "sha256": svg_checksum,
+                "exact_interval": {
+                    "png": {
+                        "name": (
+                            publication_interval_png_path.name
+                        ),
+                        "sha256": interval_png_checksum,
+                    },
+                    "svg": {
+                        "name": (
+                            publication_interval_svg_path.name
+                        ),
+                        "sha256": interval_svg_checksum,
+                    },
                 },
             },
         },
@@ -310,25 +398,48 @@ def save_subperiod_exception_rate_report(
     )
     shutil.copyfile(png_path, publication_png_path)
     shutil.copyfile(svg_path, publication_svg_path)
+    shutil.copyfile(
+        interval_png_path,
+        publication_interval_png_path,
+    )
+    shutil.copyfile(
+        interval_svg_path,
+        publication_interval_svg_path,
+    )
 
     if (
         calculate_file_sha256(publication_png_path)
         != png_checksum
         or calculate_file_sha256(publication_svg_path)
         != svg_checksum
+        or calculate_file_sha256(
+            publication_interval_png_path
+        )
+        != interval_png_checksum
+        or calculate_file_sha256(
+            publication_interval_svg_path
+        )
+        != interval_svg_checksum
     ):
         raise RuntimeError(
             "Stable publication copies do not match the immutable "
             "figure snapshot."
         )
 
-    return (
-        png_path,
-        svg_path,
-        metadata_path,
-        publication_png_path,
-        publication_svg_path,
-    )
+    snapshot_paths = {
+        "heatmap_png": png_path,
+        "heatmap_svg": svg_path,
+        "interval_png": interval_png_path,
+        "interval_svg": interval_svg_path,
+    }
+    publication_paths = {
+        "heatmap_png": publication_png_path,
+        "heatmap_svg": publication_svg_path,
+        "interval_png": publication_interval_png_path,
+        "interval_svg": publication_interval_svg_path,
+    }
+
+    return snapshot_paths, metadata_path, publication_paths
 
 
 def main() -> None:
@@ -353,31 +464,30 @@ def main() -> None:
         )
         snapshot_id = (
             f"{timestamp}_{experiment_name}_"
-            "subperiod_exception_rate_figure"
+            "subperiod_exception_rate_figures"
         )
 
-    (
-        png_path,
-        svg_path,
-        metadata_path,
-        publication_png_path,
-        publication_svg_path,
-    ) = save_subperiod_exception_rate_report(
-        var_coverage=var_coverage,
-        source_snapshot=args.subperiod_snapshot,
-        source_metadata=source_metadata,
-        output_root=args.output_root,
-        publication_root=args.publication_root,
-        snapshot_id=snapshot_id,
-        generated_at=generated_at,
+    snapshot_paths, metadata_path, publication_paths = (
+        save_subperiod_exception_rate_report(
+            var_coverage=var_coverage,
+            source_snapshot=args.subperiod_snapshot,
+            source_metadata=source_metadata,
+            output_root=args.output_root,
+            publication_root=args.publication_root,
+            snapshot_id=snapshot_id,
+            generated_at=generated_at,
+        )
     )
 
-    print("Descriptive subperiod exception-rate figure")
-    print("Saved immutable PNG:", png_path)
-    print("Saved immutable SVG:", svg_path)
+    print("Descriptive subperiod exception-rate figures")
+
+    for label, path in snapshot_paths.items():
+        print(f"Saved immutable {label}:", path)
+
     print("Saved metadata:", metadata_path)
-    print("Updated publication PNG:", publication_png_path)
-    print("Updated publication SVG:", publication_svg_path)
+
+    for label, path in publication_paths.items():
+        print(f"Updated publication {label}:", path)
 
 
 if __name__ == "__main__":

@@ -257,8 +257,18 @@ comparison protocol.
   `092aa43a56d9066d60509e65a1f8c8c2d2423b53672903416d7d440ffda14c62`
   and its SVG SHA-256 is
   `f36f073583105f8a8400917d0519fd015f1c0957b6b1f30cb810f64eee058f6d`.
-- [ ] Create the observed-versus-expected exception-count figure with
-  pointwise exact intervals.
+- [x] Create and visually verify the observed exception-rate figure with
+  pointwise 95% Clopper-Pearson exact intervals. The combined official figure
+  snapshot is
+  `20261015T164322450827Z_baseline_11_asset_subperiod_exception_rate_figures`.
+  The exact-interval figure's 300-DPI PNG SHA-256 is
+  `ba3fa2235e9752f23d6e631402e4d89aa8f8af9aa6d7db21e75704a999d0f188`
+  and its SVG SHA-256 is
+  `a0471beabac697d1e51b0402d022a18faebd48d620c46184bebc9319fbe29894`.
+  The regenerated heatmap PNG SHA-256 is
+  `092aa43a56d9066d60509e65a1f8c8c2d2423b53672903416d7d440ffda14c62`
+  and its SVG SHA-256 is
+  `70ecea02d85c5f84955775565eb974705a246fd8fd0d29e2607b8da4b13c13d1`.
 - [ ] Create the subperiod predictive-score rank heatmaps.
 - [ ] Create and visually verify the professional subperiod figures.
 
