@@ -18,13 +18,13 @@ The project will use adjusted daily closing-price information according to the p
 
 Let $P^{\mathrm{adj}}_{i,t}$ denote the adjusted closing price of asset $i$ for trading session $t$. Its one-day simple return is
 
-```math
+$$
 R_{i,t}
 =
 \frac{P^{\mathrm{adj}}_{i,t}}
      {P^{\mathrm{adj}}_{i,t-1}}
 -1.
-```
+$$
 
 A positive return represents an increase in economic value, while a negative return represents a decrease.
 
@@ -36,18 +36,18 @@ Simple returns will be the primary convention because they combine directly acro
 
 Let $w_{i,t-1}$ denote the weight of asset $i$ established before the return for session $t$ is realized. The portfolio return is
 
-```math
+$$
 R_{p,t}
 =
 \sum_{i=1}^{N}
 w_{i,t-1}R_{i,t}.
-```
+$$
 
 The use of beginning-of-period weights ensures that portfolio positions are fixed before the current session's returns become known. This prevents look-ahead bias.
 
 Logarithmic returns are defined by
 
-```math
+$$
 r_{i,t}
 =
 \ln\left(
@@ -56,7 +56,7 @@ r_{i,t}
 \right)
 =
 \ln(1+R_{i,t}).
-```
+$$
 
 Log returns add across consecutive time periods, which can be useful for exploratory analysis. However, weighted asset log returns do not directly equal the return of a rebalanced linear portfolio. Log returns will therefore not be the primary convention for portfolio P&L, VaR, or Expected Shortfall.
 
@@ -64,9 +64,9 @@ Log returns add across consecutive time periods, which can be useful for explora
 
 The baseline experiment uses a fully invested, long-only, equal-weight portfolio containing all 11 assets. Each asset has the target weight
 
-```math
+$$
 w_i = \frac{1}{11}.
-```
+$$
 
 The portfolio is rebalanced to equal target weights after the final trading session of each month. The resulting weights apply beginning with the following trading session. Between rebalancing dates, asset quantities remain fixed and portfolio weights drift as asset prices change.
 
@@ -74,35 +74,63 @@ The baseline portfolio has an initial value of USD 1,000,000 and no cash allocat
 
 Monthly rebalancing is intended to provide realistic portfolio dynamics while keeping the portfolio rule independent of the risk models being compared.
 
-## 4. Portfolio P&L and loss
+## 4. Portfolio P&L and modeling loss
 
 Let $V_{t-1}$ denote the portfolio value immediately before the session-$t$ return is realized.
 
 The one-day portfolio profit and loss is
 
-```math
+$$
 \mathrm{PnL}_t
 =
 V_{t-1}R_{p,t}.
-```
+$$
 
 P&L is positive for a gain and negative for a loss.
 
-Portfolio loss is defined as the negative of P&L:
+Dollar portfolio loss is the negative of P&L:
 
-```math
-L_t
+$$
+\mathcal{L}^{\mathrm{USD}}_t
 =
 -\mathrm{PnL}_t
 =
 -V_{t-1}R_{p,t}.
-```
+$$
+
+The statistical engine works in normalized portfolio-return units. Its
+modeled loss variable is
+
+$$
+L_t
+=
+\frac{\mathcal{L}^{\mathrm{USD}}_t}{V_{t-1}}
+=
+-R_{p,t}.
+$$
+
+Thus, a stored loss of $0.02$ represents a loss equal to 2% of the portfolio
+value immediately before the session. Every realized loss, VaR forecast,
+Expected Shortfall forecast, score, and backtest statistic uses this same
+unit. If dollar risk is required for reporting, the corresponding forecasts
+are obtained without changing the statistical model:
+
+$$
+\operatorname{VaR}^{\mathrm{USD}}_{t,\alpha}
+=
+V_{t-1}q_{t,\alpha},
+\qquad
+\operatorname{ES}^{\mathrm{USD}}_{t,\alpha}
+=
+V_{t-1}e_{t,\alpha}.
+$$
 
 Under this convention:
 
 - a gain produces a negative loss;
 - a loss produces a positive loss; and
-- VaR and Expected Shortfall are normally reported as positive loss amounts.
+- VaR and Expected Shortfall are reported as positive loss proportions when
+  the forecasted tail lies below zero portfolio return.
 
 A portfolio return will initially be considered unavailable if any return required for a held asset is unavailable. Any later exception must be economically justified and documented.
 
@@ -110,13 +138,22 @@ A portfolio return will initially be considered unavailable if any return requir
 
 A forecast made at the end of trading session $t$ may use only information available by the end of that session.
 
-The forecast concerns the portfolio loss during the next trading session:
+The forecast concerns the normalized portfolio loss during the next trading
+session:
 
-```math
+$$
 L_{t+1}
 =
--V_t R_{p,t+1}.
-```
+-R_{p,t+1}.
+$$
+
+The corresponding dollar loss is
+
+$$
+\mathcal{L}^{\mathrm{USD}}_{t+1}
+=
+V_tL_{t+1}.
+$$
 
 The timing sequence is:
 
@@ -138,21 +175,21 @@ session $t$.
 The baseline rolling Gaussian model uses the previous 504 trading sessions.
 For forecast session $t$, its estimation sample is
 
-```math
+$$
 \mathbf{R}_{t-504},\ldots,\mathbf{R}_{t-1}.
-```
+$$
 
 The asset mean vector is the arithmetic sample mean. The covariance estimate
 is the ordinary sample covariance matrix with denominator $504-1$:
 
-```math
+$$
 \widehat{\boldsymbol{\Sigma}}_t
 =
 \frac{1}{503}
 \sum_{s=t-504}^{t-1}
 (\mathbf{R}_s-\widehat{\boldsymbol{\mu}}_t)
 (\mathbf{R}_s-\widehat{\boldsymbol{\mu}}_t)^\top.
-```
+$$
 
 No shrinkage or exponential weighting is applied in this reference model.
 The matrix must contain finite values, be symmetric, and be positive
@@ -161,7 +198,7 @@ semidefinite within a numerical tolerance.
 Let $\mathbf{w}_t$ contain the portfolio weights known at the beginning of
 forecast session $t$. The portfolio moments are
 
-```math
+$$
 \widehat{\mu}_{p,t}
 =
 \mathbf{w}_t^\top\widehat{\boldsymbol{\mu}}_t,
@@ -175,10 +212,65 @@ forecast session $t$. The portfolio moments are
 \widehat{\boldsymbol{\Sigma}}_t
 \mathbf{w}_t
 }.
-```
+$$
 
-These moments are used to calculate one-session Gaussian VaR and Expected
-Shortfall at confidence levels 95%, 97.5%, and 99%.
+Under the Gaussian model, the conditional portfolio-return and normalized-loss
+distributions are
+
+$$
+R_{p,t}\mid\mathcal{F}_{t-1}
+\sim
+\mathcal{N}
+\left(
+\widehat{\mu}_{p,t},
+\widehat{\sigma}_{p,t}^{2}
+\right),
+\qquad
+L_t\mid\mathcal{F}_{t-1}
+\sim
+\mathcal{N}
+\left(
+-\widehat{\mu}_{p,t},
+\widehat{\sigma}_{p,t}^{2}
+\right).
+$$
+
+Let $\Phi$ and $\phi$ denote the standard-normal distribution and density
+functions, and define
+
+$$
+z_{\alpha}=\Phi^{-1}(\alpha).
+$$
+
+The analytic one-session Gaussian forecasts are then
+
+$$
+q_{t,\alpha}^{\mathrm{Gauss}}
+=
+\operatorname{VaR}_{t,\alpha}^{\mathrm{Gauss}}
+=
+-\widehat{\mu}_{p,t}
++
+\widehat{\sigma}_{p,t}z_{\alpha},
+$$
+
+and
+
+$$
+e_{t,\alpha}^{\mathrm{Gauss}}
+=
+\operatorname{ES}_{t,\alpha}^{\mathrm{Gauss}}
+=
+-\widehat{\mu}_{p,t}
++
+\widehat{\sigma}_{p,t}
+\frac{\phi(z_{\alpha})}{1-\alpha}.
+$$
+
+For a continuous distribution, the latter equals
+$\mathbb{E}[L_t\mid L_t\ge q_{t,\alpha}^{\mathrm{Gauss}}]$. These analytic
+values provide the benchmark for the controlled Monte Carlo agreement test;
+the official rolling backtests use the empirical simulation estimators below.
 
 ### 6.1 Gaussian Monte Carlo convention
 
@@ -191,6 +283,91 @@ seed and reused across forecast dates. These common random numbers reduce
 artificial changes caused only by simulation noise. The simulated asset returns
 still change by date because each shock matrix is transformed using that date's
 estimated mean vector and covariance matrix.
+
+Let $S$ be the number of scenarios, let
+$\mathbf{z}^{(s)}\sim\mathcal{N}(\mathbf{0},\mathbf{I}_N)$, and let the
+forecast-date Cholesky factor $\mathbf{C}_t$ satisfy
+
+$$
+\widehat{\boldsymbol{\Sigma}}_t
+=
+\mathbf{C}_t\mathbf{C}_t^{\top}.
+$$
+
+For scenario $s$, the simulated asset return and normalized portfolio loss are
+
+$$
+\mathbf{R}^{(s)}_t
+=
+\widehat{\boldsymbol{\mu}}_t
++
+\mathbf{C}_t\mathbf{z}^{(s)},
+\qquad
+L^{(s)}_t
+=
+-\mathbf{w}_t^{\top}\mathbf{R}^{(s)}_t.
+$$
+
+The same standard-normal matrix
+$\{\mathbf{z}^{(s)}\}_{s=1}^{S}$ is reused at every forecast date, while
+$\widehat{\boldsymbol{\mu}}_t$, $\mathbf{C}_t$, and $\mathbf{w}_t$ change
+through time.
+
+Write the ordered simulated losses as
+$L_{(1),t}\le\cdots\le L_{(S),t}$. The implementation uses NumPy's linear
+sample-quantile convention. Define
+
+$$
+h=(S-1)\alpha,
+\qquad
+j=\lfloor h\rfloor,
+\qquad
+\delta=h-j.
+$$
+
+The empirical VaR estimator is
+
+$$
+\widehat q_{t,\alpha}^{\mathrm{MC}}
+=
+(1-\delta)L_{(j+1),t}
++
+\delta L_{(j+2),t}.
+$$
+
+Because $0<\alpha<1$, the required order statistics exist. Define the
+simulated tail count
+
+$$
+M_{t,\alpha}
+=
+\sum_{s=1}^{S}
+\mathbf{1}
+\left\{
+L_t^{(s)}\ge
+\widehat q_{t,\alpha}^{\mathrm{MC}}
+\right\}.
+$$
+
+The empirical Expected Shortfall estimator is
+
+$$
+\widehat e_{t,\alpha}^{\mathrm{MC}}
+=
+\frac{1}{M_{t,\alpha}}
+\sum_{s=1}^{S}
+L_t^{(s)}
+\mathbf{1}
+\left\{
+L_t^{(s)}\ge
+\widehat q_{t,\alpha}^{\mathrm{MC}}
+\right\}.
+$$
+
+The weak inequality is intentional: scenarios exactly equal to the empirical
+VaR threshold are included in the simulated ES tail. The rolling Gaussian,
+EWMA Gaussian, and filtered historical simulation backtests all use this same
+linear-quantile and tail-mean convention.
 
 The 250,000-scenario sample used by the controlled analytic-agreement test is a
 test-specific precision setting. It does not replace the 100,000-scenario
@@ -207,9 +384,9 @@ covariance estimate that responds more strongly to recent return innovations.
 
 The baseline decay parameter is
 
-```math
+$$
 \lambda = 0.94.
-```
+$$
 
 This value is the conventional daily RiskMetrics choice. It assigns weight
 $1-\lambda=0.06$ to the newest outer product and retains weight $\lambda=0.94$
@@ -221,14 +398,14 @@ Let $t_0$ denote the first forecast session. The initial EWMA covariance is the
 ordinary sample covariance from the same 504-session window used by the
 rolling Gaussian model:
 
-```math
+$$
 \widehat{\boldsymbol{\Sigma}}^{\mathrm{EWMA}}_{t_0}
 =
 \frac{1}{503}
 \sum_{s=t_0-504}^{t_0-1}
 (\mathbf{R}_s-\widehat{\boldsymbol{\mu}}_{t_0})
 (\mathbf{R}_s-\widehat{\boldsymbol{\mu}}_{t_0})^\top.
-```
+$$
 
 This initialization provides finite historical variances and correlations on
 the first forecast date without a zero-risk warm-up or future information.
@@ -239,12 +416,12 @@ remaining weight after $k$ updates is $\lambda^k$.
 For every forecast session $t$, the asset mean remains the arithmetic mean of
 the 504 returns available before that session:
 
-```math
+$$
 \widehat{\boldsymbol{\mu}}_t
 =
 \frac{1}{504}
 \sum_{s=t-504}^{t-1}\mathbf{R}_s.
-```
+$$
 
 The mean is deliberately not set to zero or estimated by a second EWMA
 recursion. Retaining the rolling Gaussian mean prevents the model comparison
@@ -252,13 +429,13 @@ from changing both the mean and covariance dynamics at once.
 
 After session $t$ is observed, its innovation is the forecast error
 
-```math
+$$
 \mathbf{u}_t
 =
 \mathbf{R}_t
 -
 \widehat{\boldsymbol{\mu}}_t.
-```
+$$
 
 The mean in this expression was calculated before session $t$ and excludes
 $\mathbf{R}_t$. The rolling mean subsequently calculated for session $t+1$
@@ -268,7 +445,7 @@ $\mathbf{R}_t$ and would partly allow the return to explain itself.
 The innovation from session $t$ updates the covariance for the next trading
 session only:
 
-```math
+$$
 \widehat{\boldsymbol{\Sigma}}^{\mathrm{EWMA}}_{t+1}
 =
 \lambda
@@ -276,7 +453,7 @@ session only:
 +
 (1-\lambda)
 \mathbf{u}_t\mathbf{u}_t^\top.
-```
+$$
 
 The sequence for each forecast is therefore:
 
@@ -321,7 +498,7 @@ Let $t_0$ denote the first eligible forecast session. The initial residual
 pool uses the same 504-session estimation window as the Gaussian models. Its
 sample mean and covariance are
 
-```math
+$$
 \widehat{\boldsymbol{\mu}}_{t_0}
 =
 \frac{1}{504}
@@ -331,21 +508,25 @@ sample mean and covariance are
 
 \widehat{\boldsymbol{\Sigma}}_{t_0}
 =
-\mathbf{L}_{t_0}\mathbf{L}_{t_0}^{\top}.
-```
+\mathbf{C}_{t_0}\mathbf{C}_{t_0}^{\top}.
+$$
+
+Here $\mathbf{C}_{t_0}$ is the lower-triangular Cholesky factor of the initial
+covariance matrix. The symbol $\mathbf{C}$ is kept distinct from the scalar
+portfolio-loss variable $L$.
 
 Each return in that initial window is converted into a calibration residual:
 
-```math
+$$
 \mathbf{z}_s
 =
-\mathbf{L}_{t_0}^{-1}
+\mathbf{C}_{t_0}^{-1}
 \left(
 \mathbf{R}_s-\widehat{\boldsymbol{\mu}}_{t_0}
 \right),
 \qquad
 s=t_0-504,\ldots,t_0-1.
-```
+$$
 
 The implementation solves the corresponding triangular linear system and
 does not form a matrix inverse. These initial observations are described as
@@ -357,13 +538,13 @@ explicit in-sample initialization convention.
 The convention preserves the shared first forecast date without requiring a
 separate pre-2010 burn-in sample. It also provides the reconstruction identity
 
-```math
+$$
 \widehat{\boldsymbol{\mu}}_{t_0}
 +
-\mathbf{L}_{t_0}\mathbf{z}_s
+\mathbf{C}_{t_0}\mathbf{z}_s
 =
 \mathbf{R}_s.
-```
+$$
 
 Consequently, the first FHS return distribution is ordinary historical
 simulation over the initial 504 returns, subject only to finite resampling
@@ -375,7 +556,7 @@ the session is observed, calculate the genuine one-step-ahead innovation and
 standardized residual using the mean and covariance that existed before the
 return:
 
-```math
+$$
 \mathbf{u}_t
 =
 \mathbf{R}_t-\widehat{\boldsymbol{\mu}}_t,
@@ -384,8 +565,8 @@ return:
 
 \mathbf{z}_t
 =
-\mathbf{L}_t^{-1}\mathbf{u}_t.
-```
+\mathbf{C}_t^{-1}\mathbf{u}_t.
+$$
 
 The oldest residual is removed and $\mathbf{z}_t$ is appended only after the
 forecast for $t$ has been issued and evaluated. The updated pool is first used
@@ -402,21 +583,21 @@ providing common random numbers while the contents of those positions evolve.
 For a sampled residual $\mathbf{z}^{*}$, current conditions are restored with
 the forecast-date Cholesky factor:
 
-```math
+$$
 \mathbf{R}^{*}_t
 =
 \widehat{\boldsymbol{\mu}}_t
 +
-\mathbf{L}_t\mathbf{z}^{*}.
-```
+\mathbf{C}_t\mathbf{z}^{*}.
+$$
 
 The corresponding simulated portfolio loss is
 
-```math
-L^{*}_{p,t}
+$$
+L^{*}_t
 =
 -\mathbf{w}_t^{\top}\mathbf{R}^{*}_t.
-```
+$$
 
 FHS VaR is the empirical loss quantile at the requested confidence level.
 Expected Shortfall is the arithmetic mean of simulated losses greater than or
@@ -456,10 +637,10 @@ classified as an exceedance.
 For confidence level $\alpha$, define the exceedance indicator and nominal
 exceedance probability as
 
-```math
+$$
 I_t=\mathbf{1}\{L_t>\operatorname{VaR}_{t,\alpha}\},
 \qquad p=1-\alpha.
-```
+$$
 
 Each model and confidence level will first be described by its number of
 forecasts, observed exceedance count, expected exceedance count, observed
@@ -469,7 +650,7 @@ exceedance rate, and nominal exceedance rate.
 
 For each model-confidence pair, let
 
-```math
+$$
 X
 =
 \sum_{t=1}^{T}I_t
@@ -479,7 +660,7 @@ x,
 \widehat p
 =
 \frac{x}{T},
-```
+$$
 
 where $T$ is the number of out-of-sample forecasts, $x$ is the observed
 number of VaR exceedances, and $\widehat p$ is the observed exceedance
@@ -487,9 +668,9 @@ rate.
 
 Under the binomial reference model,
 
-```math
+$$
 X\sim\operatorname{Binomial}(T,\pi),
-```
+$$
 
 where $\pi$ is the unknown true exceedance probability. Each observed
 exceedance rate will be accompanied by a two-sided 95% exact
@@ -497,40 +678,40 @@ Clopper-Pearson confidence interval for $\pi$.
 
 Let $c=0.95$ be the interval confidence level and let
 
-```math
+$$
 \gamma=1-c.
-```
+$$
 
 Using $B_q^{-1}(a,b)$ to denote the $q$-quantile of a Beta distribution
 with shape parameters $a$ and $b$, the lower bound for $x>0$ is
 
-```math
+$$
 p_{\mathrm{lower}}
 =
 B_{\gamma/2}^{-1}
 \left(x,T-x+1\right).
-```
+$$
 
 When $x=0$, the lower bound is defined as
 
-```math
+$$
 p_{\mathrm{lower}}=0.
-```
+$$
 
 For $x<T$, the upper bound is
 
-```math
+$$
 p_{\mathrm{upper}}
 =
 B_{1-\gamma/2}^{-1}
 \left(x+1,T-x\right).
-```
+$$
 
 When $x=T$, the upper bound is defined as
 
-```math
+$$
 p_{\mathrm{upper}}=1.
-```
+$$
 
 The VaR confidence level and the interval confidence level have different
 meanings. For example, a 99% VaR implies a nominal exceedance probability
@@ -553,27 +734,27 @@ coverage tests or their multiplicity-adjusted conclusions.
 
 The Kupiec likelihood-ratio test will evaluate the null hypothesis
 
-```math
+$$
 H_0:\Pr(I_t=1)=p
-```
+$$
 
 against the two-sided alternative
 
-```math
+$$
 H_1:\Pr(I_t=1)\ne p.
-```
+$$
 
 If $T$ is the number of forecasts, $x=\sum_t I_t$, and
 $\widehat p=x/T$, the statistic is
 
-```math
+$$
 LR_{\mathrm{uc}}
 =
 -2\log\left[
 \frac{(1-p)^{T-x}p^x}
 {(1-\widehat p)^{T-x}\widehat p^x}
 \right].
-```
+$$
 
 Terms of the form $0\log(0)$ are evaluated as zero so samples containing no
 exceedances or only exceedances remain defined. Under the null hypothesis,
@@ -596,16 +777,16 @@ The Christoffersen independence test examines whether a VaR exceedance is
 more likely after another exceedance. For consecutive indicators, define the
 four transition counts
 
-```math
+$$
 n_{00},\quad n_{01},\quad n_{10},\quad n_{11},
-```
+$$
 
 where the first subscript is the preceding session's state and the second is
 the current session's state. For example, $n_{11}$ counts an exceedance
 followed immediately by another exceedance. The conditional breach-rate
 estimates are
 
-```math
+$$
 \widehat\pi_0
 =
 \frac{n_{01}}{n_{00}+n_{01}},
@@ -613,36 +794,36 @@ estimates are
 \widehat\pi_1
 =
 \frac{n_{11}}{n_{10}+n_{11}},
-```
+$$
 
 and the common transition breach rate under independence is
 
-```math
+$$
 \widehat\pi
 =
 \frac{n_{01}+n_{11}}
 {n_{00}+n_{01}+n_{10}+n_{11}}.
-```
+$$
 
 The independence null states that the next-session breach probability does
 not depend on the immediately preceding breach state:
 
-```math
+$$
 H_0^{\mathrm{ind}}:\pi_0=\pi_1.
-```
+$$
 
 The restricted and first-order Markov likelihoods are
 
-```math
+$$
 \mathcal{L}_0
 =
 (1-\widehat\pi)^{n_{00}+n_{10}}
 \widehat\pi^{n_{01}+n_{11}},
-```
+$$
 
 and
 
-```math
+$$
 \mathcal{L}_1
 =
 (1-\widehat\pi_0)^{n_{00}}
@@ -650,15 +831,15 @@ and
 \times
 (1-\widehat\pi_1)^{n_{10}}
 \widehat\pi_1^{n_{11}}.
-```
+$$
 
 The likelihood-ratio statistic is
 
-```math
+$$
 LR_{\mathrm{ind}}
 =
 -2\log\left(\frac{\mathcal{L}_0}{\mathcal{L}_1}\right).
-```
+$$
 
 Under the independence null, this statistic is compared with an asymptotic
 chi-square distribution with one degree of freedom.
@@ -672,11 +853,11 @@ returns or losses themselves are independent.
 Christoffersen conditional coverage combines correct unconditional frequency
 and first-order independence:
 
-```math
+$$
 LR_{\mathrm{cc}}
 =
 LR_{\mathrm{uc}}+LR_{\mathrm{ind}}.
-```
+$$
 
 Under the joint conditional-coverage null, this statistic is compared with
 an asymptotic chi-square distribution with two degrees of freedom.
@@ -696,22 +877,22 @@ p-values for the primary-test family.
 
 For either nine-test family, let the ordered raw p-values be
 
-```math
+$$
 p_{(1)}\le p_{(2)}\le\cdots\le p_{(m)},
 \qquad m=9.
-```
+$$
 
 Holm's step-down procedure compares the $j$th ordered p-value with
 
-```math
+$$
 \frac{s}{m-j+1},
-```
+$$
 
 where $s$ is the family significance level. Testing proceeds from the
 smallest p-value and stops rejecting when the first comparison fails. The
 equivalent adjusted p-value for ordered position $j$ is
 
-```math
+$$
 \widetilde{p}_{(j)}
 =
 \min\left\{
@@ -719,7 +900,7 @@ equivalent adjusted p-value for ordered position $j$ is
 \max_{1\le k\le j}
 \left[(m-k+1)p_{(k)}\right]
 \right\}.
-```
+$$
 
 The running maximum ensures that adjusted p-values cannot decrease as the raw
 p-values increase. Adjusted values are then returned to their original
@@ -748,33 +929,33 @@ Expected Shortfall evaluates the magnitude of losses in the VaR tail rather
 than the frequency of VaR exceedances. For model confidence level $\alpha$,
 write the forecast VaR and Expected Shortfall as
 
-```math
+$$
 q_{t,\alpha}=\operatorname{VaR}_{t,\alpha},
 \qquad
 e_{t,\alpha}=\operatorname{ES}_{t,\alpha}.
-```
+$$
 
 For an upper-tail loss distribution, an internally consistent forecast pair
 must satisfy
 
-```math
+$$
 e_{t,\alpha}\ge q_{t,\alpha}.
-```
+$$
 
 The implementation will validate this ordering using an absolute tolerance of
 $10^{-12}$ in portfolio-loss units. This tolerance accommodates insignificant
 floating-point differences without accepting a material ES-below-VaR
 violation. VaR exceedances continue to use the strict rule
 
-```math
+$$
 I_{t,\alpha}
 =
 \mathbf{1}\left\{L_t>q_{t,\alpha}\right\}.
-```
+$$
 
 Define the set and number of VaR-exceedance sessions as
 
-```math
+$$
 \mathcal{B}_{\alpha}
 =
 \left\{t:I_{t,\alpha}=1\right\},
@@ -782,57 +963,57 @@ Define the set and number of VaR-exceedance sessions as
 x_{\alpha}
 =
 \sum_{t=1}^{T}I_{t,\alpha}.
-```
+$$
 
 When $x_{\alpha}>0$, the mean realized loss on exceedance sessions is
 
-```math
+$$
 \overline{L}_{\mathcal{B},\alpha}
 =
 \frac{1}{x_{\alpha}}
 \sum_{t\in\mathcal{B}_{\alpha}}L_t.
-```
+$$
 
 The corresponding mean VaR and mean Expected Shortfall forecasts on those
 same sessions are
 
-```math
+$$
 \overline{q}_{\mathcal{B},\alpha}
 =
 \frac{1}{x_{\alpha}}
 \sum_{t\in\mathcal{B}_{\alpha}}q_{t,\alpha},
-```
+$$
 
 and
 
-```math
+$$
 \overline{e}_{\mathcal{B},\alpha}
 =
 \frac{1}{x_{\alpha}}
 \sum_{t\in\mathcal{B}_{\alpha}}e_{t,\alpha}.
-```
+$$
 
 The VaR excess on an exceedance session is
 
-```math
+$$
 D^{\mathrm{VaR}}_{t,\alpha}
 =
 L_t-q_{t,\alpha}.
-```
+$$
 
 It is strictly positive by construction. Its mean is
 
-```math
+$$
 \overline{D}^{\mathrm{VaR}}_{\alpha}
 =
 \frac{1}{x_{\alpha}}
 \sum_{t\in\mathcal{B}_{\alpha}}
 D^{\mathrm{VaR}}_{t,\alpha}.
-```
+$$
 
 The median VaR excess is
 
-```math
+$$
 \widetilde{D}^{\mathrm{VaR}}_{\alpha}
 =
 \operatorname{median}
@@ -840,16 +1021,16 @@ The median VaR excess is
 D^{\mathrm{VaR}}_{t,\alpha}:
 t\in\mathcal{B}_{\alpha}
 \right\},
-```
+$$
 
 and the maximum VaR excess is
 
-```math
+$$
 D^{\mathrm{VaR,max}}_{\alpha}
 =
 \max_{t\in\mathcal{B}_{\alpha}}
 D^{\mathrm{VaR}}_{t,\alpha}.
-```
+$$
 
 The mean describes average breach severity, the median gives a value less
 dominated by a few extreme sessions, and the maximum records the worst
@@ -857,21 +1038,21 @@ observed miss beyond the VaR threshold.
 
 The Expected Shortfall gap on a VaR-exceedance session is
 
-```math
+$$
 D^{\mathrm{ES}}_{t,\alpha}
 =
 L_t-e_{t,\alpha},
-```
+$$
 
 with conditional sample mean
 
-```math
+$$
 \overline{D}^{\mathrm{ES}}_{\alpha}
 =
 \frac{1}{x_{\alpha}}
 \sum_{t\in\mathcal{B}_{\alpha}}
 D^{\mathrm{ES}}_{t,\alpha}.
-```
+$$
 
 A positive mean Expected Shortfall gap means that realized losses on the VaR
 exceedance sessions were, on average, larger than the corresponding ES
@@ -891,43 +1072,43 @@ pairwise model rankings without an appropriate comparative test.
 For a diagnostic that uses every forecast session, define the joint VaR-ES
 tail contribution
 
-```math
+$$
 C_{t,\alpha}
 =
 q_{t,\alpha}
 +
 \frac{I_{t,\alpha}}{1-\alpha}
 \left(L_t-q_{t,\alpha}\right).
-```
+$$
 
 The corresponding Expected Shortfall identification residual is
 
-```math
+$$
 Z_{t,\alpha}
 =
 C_{t,\alpha}-e_{t,\alpha}.
-```
+$$
 
 When the conditional VaR and Expected Shortfall forecasts are jointly
 correct and the loss distribution is continuous at the VaR threshold,
 
-```math
+$$
 \mathbb{E}\left[
 Z_{t,\alpha}
 \mid
 \mathcal{F}_{t-1}
 \right]
 =0.
-```
+$$
 
 The sample mean identification residual is
 
-```math
+$$
 \overline{Z}_{\alpha}
 =
 \frac{1}{T}
 \sum_{t=1}^{T}Z_{t,\alpha}.
-```
+$$
 
 A positive value indicates that the joint forecasts understate the realized
 tail contribution on average, while a negative value indicates overstatement.
@@ -937,13 +1118,13 @@ is miscalibrated.
 
 The formal calibration null and two-sided alternative are
 
-```math
+$$
 H_0:
 \mathbb{E}[Z_{t,\alpha}]=0,
 \qquad
 H_1:
 \mathbb{E}[Z_{t,\alpha}]\ne0.
-```
+$$
 
 The sample mean need not equal zero exactly even under a correctly calibrated
 model. Formal inference must therefore measure how large the observed mean is
@@ -955,39 +1136,39 @@ for this uncertainty.
 
 First center the residuals around their sample mean:
 
-```math
+$$
 \widetilde{Z}_{t,\alpha}
 =
 Z_{t,\alpha}-\overline{Z}_{\alpha}.
-```
+$$
 
 For lag $k$, estimate the residual autocovariance using denominator $T$:
 
-```math
+$$
 \widehat{\gamma}_{k,\alpha}
 =
 \frac{1}{T}
 \sum_{t=k+1}^{T}
 \widetilde{Z}_{t,\alpha}
 \widetilde{Z}_{t-k,\alpha}.
-```
+$$
 
 The lag-zero value $\widehat{\gamma}_{0,\alpha}$ measures the residual
 variance. Positive values at later lags indicate that residuals of similar
 sign or magnitude tend to occur close together. For bandwidth $K$, the
 Newey-West estimator applies Bartlett weights
 
-```math
+$$
 w_k
 =
 1-\frac{k}{K+1},
 \qquad
 k=1,\ldots,K,
-```
+$$
 
 and estimates the long-run variance as
 
-```math
+$$
 \widehat{\Omega}_{\alpha}
 =
 \widehat{\gamma}_{0,\alpha}
@@ -995,35 +1176,35 @@ and estimates the long-run variance as
 2
 \sum_{k=1}^{K}
 w_k\widehat{\gamma}_{k,\alpha}.
-```
+$$
 
 The Bartlett weights decline linearly with the lag, so nearby dependence
 receives more weight than more distant dependence. The factor of two includes
 the matching positive and negative autocovariance lags. The estimated variance
 and standard error of the sample mean are
 
-```math
+$$
 \widehat{\operatorname{Var}}_{\mathrm{HAC}}
 \left(\overline{Z}_{\alpha}\right)
 =
 \frac{\widehat{\Omega}_{\alpha}}{T},
-```
+$$
 
 and
 
-```math
+$$
 \operatorname{SE}_{\mathrm{HAC}}
 \left(\overline{Z}_{\alpha}\right)
 =
 \sqrt{
 \frac{\widehat{\Omega}_{\alpha}}{T}
 }.
-```
+$$
 
 Unless an explicit bandwidth is supplied for a controlled test or robustness
 analysis, the deterministic bandwidth rule is
 
-```math
+$$
 K
 =
 \min\left\{
@@ -1032,12 +1213,12 @@ T-1,
 4\left(\frac{T}{100}\right)^{2/9}
 \right\rfloor
 \right\}.
-```
+$$
 
 Recording $K$ in every result makes the dependence assumption auditable and
 reproducible. The HAC test statistic is
 
-```math
+$$
 T_{\mathrm{HAC},\alpha}
 =
 \frac{
@@ -1046,12 +1227,12 @@ T_{\mathrm{HAC},\alpha}
 \operatorname{SE}_{\mathrm{HAC}}
 (\overline{Z}_{\alpha})
 }.
-```
+$$
 
 Using its asymptotic standard-normal reference distribution, the two-sided
 p-value is
 
-```math
+$$
 p_{\alpha}
 =
 2\left[
@@ -1059,7 +1240,7 @@ p_{\alpha}
 \left|T_{\mathrm{HAC},\alpha}\right|
 \right)
 \right].
-```
+$$
 
 At significance level $s=0.05$, the individual null is rejected when
 $p_{\alpha}<s$. A statistically significant positive mean indicates that the
@@ -1089,22 +1270,22 @@ project.
 In the standard notation for an observation $y$, a proposed probability-$\tau$
 quantile $q$, and $0<\tau<1$, the quantile or pinball loss is
 
-```math
+$$
 Q_{\tau}(y,q)
 =
 \left(\tau-\mathbf{1}\{y<q\}\right)(y-q).
-```
+$$
 
 Equivalently,
 
-```math
+$$
 Q_{\tau}(y,q)
 =
 \begin{cases}
 \tau(y-q), & y>q,\\
 (1-\tau)(q-y), & y\le q.
 \end{cases}
-```
+$$
 
 The score is zero when $y=q$ and nonnegative otherwise. Its asymmetry is what
 makes the true $\tau$-quantile, rather than the mean or median, minimize
@@ -1113,7 +1294,7 @@ expected score.
 This project models an upper-tail positive portfolio loss $L_t$ and uses the
 confidence level $\alpha$ directly. Therefore the project implementation is
 
-```math
+$$
 Q_{t,\alpha}
 =
 \begin{cases}
@@ -1122,7 +1303,7 @@ Q_{t,\alpha}
 (1-\alpha)(q_{t,\alpha}-L_t),
 & L_t\le q_{t,\alpha}.
 \end{cases}
-```
+$$
 
 This is the standard quantile score applied to the project's loss variable;
 it is not a different statistical criterion. The strict project breach rule
@@ -1132,18 +1313,36 @@ numerical score.
 
 For model $m$, the descriptive mean score is
 
-```math
+$$
 \overline{Q}_{m,\alpha}
 =
 \frac{1}{T}
 \sum_{t=1}^{T}Q_{m,t,\alpha}.
-```
+$$
+
+The corresponding within-confidence descriptive rank is
+
+$$
+r^{Q}_{m,\alpha}
+=
+1
++
+\sum_j
+\mathbf{1}
+\left\{
+\overline{Q}_{j,\alpha}
+<
+\overline{Q}_{m,\alpha}
+\right\}.
+$$
 
 Models are ranked from the smallest to the largest mean score separately at
-each confidence level. They must use identical ordered forecast rows and
-identical realized losses. Rankings across different confidence levels are not
-meaningful because the asymmetric weights differ. A lower sample mean is only
-a descriptive advantage until a formal loss-differential test is applied.
+each confidence level. Rank one denotes the smallest mean quantile loss, and
+exactly equal means share the smallest applicable rank. Models must use
+identical ordered forecast rows and identical realized losses. Rankings across
+different confidence levels are not meaningful because the asymmetric weights
+differ. A lower sample mean is only a descriptive advantage until a formal
+loss-differential test is applied.
 
 #### Canonical FZ0 score for returns
 
@@ -1162,7 +1361,7 @@ $Y_t$ be a return, let $\beta$ be a small left-tail probability such as 0.05,
 let $v_{t,\beta}<0$ be return VaR, and let $e_{t,\beta}<v_{t,\beta}<0$ be
 return Expected Shortfall. The canonical score is
 
-```math
+$$
 S^{\mathrm{FZ0}}
 (Y_t,v_{t,\beta},e_{t,\beta};\beta)
 =
@@ -1177,7 +1376,7 @@ S^{\mathrm{FZ0}}
 +
 \log(-e_{t,\beta})
 -1.
-```
+$$
 
 This is the standard literature form. Its negative VaR and ES values reflect
 the convention that severe portfolio outcomes are negative returns.
@@ -1186,7 +1385,7 @@ the convention that severe portfolio outcomes are negative returns.
 
 The engine stores severe outcomes as positive losses. Define
 
-```math
+$$
 L_t=-Y_t,
 \qquad
 q_{t,\alpha}=-v_{t,\beta},
@@ -1194,21 +1393,21 @@ q_{t,\alpha}=-v_{t,\beta},
 s_{t,\alpha}=-e_{t,\beta},
 \qquad
 \alpha=1-\beta.
-```
+$$
 
 Then $s_{t,\alpha}\ge q_{t,\alpha}>0$, and the lower-return-tail event becomes
 the upper-loss-tail event:
 
-```math
+$$
 \mathbf{1}\{Y_t\le v_{t,\beta}\}
 =
 \mathbf{1}\{L_t\ge q_{t,\alpha}\}.
-```
+$$
 
 Substituting these identities into the canonical formula gives the project's
 positive-loss FZ0 score:
 
-```math
+$$
 S^{\mathrm{FZ0}}_{t,\alpha}
 =
 \frac{
@@ -1222,7 +1421,7 @@ S^{\mathrm{FZ0}}_{t,\alpha}
 +
 \log(s_{t,\alpha})
 -1.
-```
+$$
 
 The implementation uses the existing strict VaR exceedance indicator. The
 canonical formula is often written with a weak inequality, but equality makes
@@ -1239,21 +1438,21 @@ The four parts have distinct roles:
 
 For example, let $\alpha=0.95$, $q=0.02$, and $s=0.03$. On a non-breach day,
 
-```math
+$$
 S^{\mathrm{FZ0}}
 =
 \frac{0.02}{0.03}
 +\log(0.03)-1
 \approx -3.8399.
-```
+$$
 
 If the realized loss is $L=0.03$, the additional tail term is
 
-```math
+$$
 \frac{0.03-0.02}{(1-0.95)0.03}
 =
 6.6667,
-```
+$$
 
 so the breach-day score is approximately $2.8268$. FZ0 scores need not be
 positive; only their ordering and differences matter, and lower is better.
@@ -1268,17 +1467,17 @@ uses the same units.
 
 For model $m$, the mean joint score is
 
-```math
+$$
 \overline{S}^{\mathrm{FZ0}}_{m,\alpha}
 =
 \frac{1}{T}
 \sum_{t=1}^{T}
 S^{\mathrm{FZ0}}_{m,t,\alpha}.
-```
+$$
 
 Within confidence level $\alpha$, the descriptive FZ0 rank is
 
-```math
+$$
 r^{\mathrm{FZ0}}_{m,\alpha}
 =
 1
@@ -1290,7 +1489,7 @@ r^{\mathrm{FZ0}}_{m,\alpha}
 <
 \overline{S}^{\mathrm{FZ0}}_{m,\alpha}
 \right\}.
-```
+$$
 
 Rank one therefore denotes the smallest mean FZ0 loss. Models with exactly
 equal means share the smallest applicable rank. The implementation calculates
@@ -1317,13 +1516,13 @@ Fix one confidence level $\alpha$ and one score family $G$. In this project,
 $G$ is either VaR quantile loss or the joint VaR-ES FZ0 loss. For an ordered
 pair of models $A$ and $B$, define the daily score differential as
 
-```math
+$$
 d^{G}_{A,B,t}
 =
 S^{G}_{A,t,\alpha}
 -
 S^{G}_{B,t,\alpha}.
-```
+$$
 
 Because lower scores are better, the ordering has a direct interpretation:
 
@@ -1333,22 +1532,22 @@ Because lower scores are better, the ordering has a direct interpretation:
 
 The sample mean score differential is
 
-```math
+$$
 \overline d^{G}_{A,B}
 =
 \frac{1}{T}
 \sum_{t=1}^{T}d^{G}_{A,B,t}.
-```
+$$
 
 The two-sided hypotheses are
 
-```math
+$$
 H_0:
 \mathbb{E}\!\left[d^{G}_{A,B,t}\right]=0,
 \qquad
 H_1:
 \mathbb{E}\!\left[d^{G}_{A,B,t}\right]\ne0.
-```
+$$
 
 Thus, the null says that the two models have equal expected predictive
 accuracy under the selected score. It does **not** say that either model is
@@ -1365,43 +1564,43 @@ variance with the Newey-West heteroskedasticity-and-autocorrelation-consistent
 estimator
 ([Newey and West, 1987](https://doi.org/10.2307/1913610)). First define
 
-```math
+$$
 \widetilde d_t
 =
 d_t-\overline d,
-```
+$$
 
 and estimate the lag-$k$ autocovariance by
 
-```math
+$$
 \widehat\gamma_k
 =
 \frac{1}{T}
 \sum_{t=k+1}^{T}
 \widetilde d_t\widetilde d_{t-k}.
-```
+$$
 
 With Bartlett weight
 
-```math
+$$
 w_k
 =
 1-\frac{k}{K+1},
-```
+$$
 
 the estimated long-run variance is
 
-```math
+$$
 \widehat\Omega_d
 =
 \widehat\gamma_0
 +
 2\sum_{k=1}^{K}w_k\widehat\gamma_k.
-```
+$$
 
 The HAC standard error of the mean and the DM statistic are
 
-```math
+$$
 \operatorname{SE}_{\mathrm{HAC}}(\overline d)
 =
 \sqrt{\frac{\widehat\Omega_d}{T}},
@@ -1410,22 +1609,22 @@ DM_{A,B}
 =
 \frac{\overline d_{A,B}}
 {\operatorname{SE}_{\mathrm{HAC}}(\overline d_{A,B})}.
-```
+$$
 
 Under the null and the large-sample approximation, the statistic is compared
 with a standard normal distribution. The two-sided p-value is
 
-```math
+$$
 p_{A,B}
 =
 2\left[1-\Phi\!\left(\left|DM_{A,B}\right|\right)\right].
-```
+$$
 
 The HAC calculation changes the estimated uncertainty, not the observed mean
 score difference. The implementation reuses the project's tested scalar
 Newey-West mean-test engine and its deterministic default bandwidth
 
-```math
+$$
 K
 =
 \min\left\{
@@ -1434,7 +1633,7 @@ T-1,
 4\left(\frac{T}{100}\right)^{2/9}
 \right\rfloor
 \right\}.
-```
+$$
 
 The chosen bandwidth is saved with every result. This makes the baseline
 reproducible and allows later bandwidth sensitivity checks.
@@ -1450,17 +1649,17 @@ pairs:
 
 For example, suppose the ordered comparison is model $A$ minus model $B$ and
 
-```math
+$$
 \overline d_{A,B}=-0.00010,
 \qquad
 \operatorname{SE}_{\mathrm{HAC}}(\overline d_{A,B})=0.00004.
-```
+$$
 
 Then
 
-```math
+$$
 DM_{A,B}=-2.5,
-```
+$$
 
 with a two-sided unadjusted p-value of approximately $0.0124$. The negative
 sign says that $A$ has the smaller average score, while the small p-value says
@@ -1506,40 +1705,40 @@ the current term **amber**.
 
 For model $m$, define its 99% VaR exception indicator by
 
-```math
+$$
 I_{m,t,0.99}
 =
 \mathbf{1}
 \left\{
 L_t>q_{m,t,0.99}
 \right\}.
-```
+$$
 
 The strict inequality matches the project's existing VaR exceedance rule. For
 each date with 250 available forecast observations, the rolling exception
 count is
 
-```math
+$$
 N_{m,t}^{(250)}
 =
 \sum_{j=0}^{249}
 I_{m,t-j,0.99}.
-```
+$$
 
 If a model has correct independent 99% coverage, the expected count in a
 250-session window is
 
-```math
+$$
 \mathbb{E}\!\left[N_{m,t}^{(250)}\right]
 =
 250(1-0.99)
 =
 2.5.
-```
+$$
 
 The zone function is
 
-```math
+$$
 Z\!\left(N_{m,t}^{(250)}\right)
 =
 \begin{cases}
@@ -1547,7 +1746,7 @@ Z\!\left(N_{m,t}^{(250)}\right)
 \text{amber}, & 5\le N_{m,t}^{(250)}\le9,\\
 \text{red}, & 10\le N_{m,t}^{(250)}\le250.
 \end{cases}
-```
+$$
 
 The thresholds are derived for exactly 250 observations at 99% coverage. The
 Basel guidance explains that boundaries for other sample sizes must be derived
@@ -1571,7 +1770,7 @@ window end dates and let $W_m=|\mathcal{T}_m|$. For zone
 $z\in\{\text{green},\text{amber},\text{red}\}$, the number and proportion of
 windows in that zone are
 
-```math
+$$
 C_{m,z}
 =
 \sum_{t\in\mathcal{T}_m}
@@ -1580,11 +1779,11 @@ C_{m,z}
 R_{m,z}
 =
 \frac{C_{m,z}}{W_m}.
-```
+$$
 
 The counts must satisfy
 
-```math
+$$
 C_{m,\mathrm{green}}
 +
 C_{m,\mathrm{amber}}
@@ -1592,17 +1791,17 @@ C_{m,\mathrm{amber}}
 C_{m,\mathrm{red}}
 =
 W_m,
-```
+$$
 
 and their rates sum to one. The summary also reports the latest count and
 zone, the maximum rolling exception count
 
-```math
+$$
 N_m^{\max}
 =
 \max_{t\in\mathcal{T}_m}
 N_{m,t}^{(250)},
-```
+$$
 
 and the earliest date attaining that maximum. First amber and first red dates
 are retained when those zones occur; otherwise they are recorded as missing.
@@ -1648,14 +1847,14 @@ replace, modify, or selectively reinterpret any completed full-sample test.
 For subperiod $s$, let $\mathcal{T}_s$ be its common aligned forecast dates and
 let
 
-```math
+$$
 n_s=|\mathcal{T}_s|.
-```
+$$
 
 For model $m$ and confidence level $\alpha$, define the subperiod exception
 count and rate by
 
-```math
+$$
 X_{m,s,\alpha}
 =
 \sum_{t\in\mathcal{T}_s} I_{m,t,\alpha},
@@ -1663,22 +1862,22 @@ X_{m,s,\alpha}
 \widehat p_{m,s,\alpha}
 =
 \frac{X_{m,s,\alpha}}{n_s},
-```
+$$
 
 where the unchanged strict exception rule is
 
-```math
+$$
 I_{m,t,\alpha}
 =
 \mathbf{1}\{L_t>\operatorname{VaR}_{m,t,\alpha}\}.
-```
+$$
 
 Under correct unconditional coverage, the nominal exception probability is
 $p_\alpha=1-\alpha$ and the expected subperiod count is
 
-```math
+$$
 E_{s,\alpha}=n_s(1-\alpha).
-```
+$$
 
 The full-sample rate is a sample-size-weighted average of disjoint subperiod
 rates. Consequently, conservative and anti-conservative periods can offset
@@ -1749,19 +1948,19 @@ that timeline.
 
 Two reliability flags make sparse tail information explicit:
 
-```math
+$$
 \texttt{sparse\_expected\_tail}
 =
 \mathbf{1}\{n_s(1-\alpha)<5\},
-```
+$$
 
 and
 
-```math
+$$
 \texttt{sparse\_observed\_tail}
 =
 \mathbf{1}\{X_{m,s,\alpha}<5\}.
-```
+$$
 
 If no exception occurs, conditional tail-severity statistics remain missing,
 not zero. If one through four exceptions occur, the statistics are retained
@@ -1805,7 +2004,42 @@ Interpretation follows a fixed hierarchy:
 The versioned report saves `subperiod_definitions.csv`,
 `subperiod_var_coverage.csv`, `subperiod_es_tail_severity.csv`,
 `subperiod_joint_calibration.csv`, and
-`subperiod_predictive_accuracy.csv`. The first implemented figure is a
+`subperiod_predictive_accuracy.csv`.
+
+The interval figure adds a binomial reference band to help interpret the
+observed rates. For nominal probability $p_\alpha=1-\alpha$ and reference
+sample size $n_{\mathrm{ref}}$, define
+
+$$
+X_{\mathrm{ref},\alpha}
+\sim
+\operatorname{Binomial}
+\left(n_{\mathrm{ref}},p_\alpha\right).
+$$
+
+Let $F^{-1}_{X}(u)=\min\{k:F_X(k)\ge u\}$ be the discrete binomial quantile.
+The displayed central 95% reference band is
+
+$$
+\mathcal{R}_{\alpha}
+=
+\left[
+\frac{F^{-1}_{X_{\mathrm{ref},\alpha}}(0.025)}
+     {n_{\mathrm{ref}}},
+\frac{F^{-1}_{X_{\mathrm{ref},\alpha}}(0.975)}
+     {n_{\mathrm{ref}}}
+\right].
+$$
+
+The calendar panels use $n_{\mathrm{ref}}=252$, while the NBER stress panels
+use their actual length, $n_{\mathrm{ref}}=62$. This construction conditions
+on the nominal probability and asks what rates it would commonly generate. It
+is therefore conceptually different from the Clopper-Pearson interval, which
+starts from an observed count and describes uncertainty about the unknown
+probability $\pi$. The reference band is descriptive and does not create an
+additional acceptance test.
+
+The first implemented figure is a
 confidence-level-faceted heatmap of observed-minus-nominal exception rates.
 It uses percentage-point cell labels and one shared symmetric scale centered
 at zero, so the sign and color retain the same meaning across every model and
@@ -1836,6 +2070,7 @@ are visual benchmarks only; the plotted Clopper-Pearson interval for each
 estimate uses its actual period sample size. Recession estimates are labelled
 with observed-count/sample-size pairs, positioned beyond the upper interval
 bound.
+
 The figure states that the intervals are non-simultaneous and
 non-multiplicity-adjusted; it therefore supplies uncertainty context without
 creating an additional visual pass-or-fail rule.

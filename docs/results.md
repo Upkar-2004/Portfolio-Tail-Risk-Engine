@@ -146,7 +146,7 @@ miss than a dot alone would show.
 
 During the 2020 contraction, the 95% EWMA Gaussian and filtered historical
 simulation estimates were each 7 exceptions in 62 sessions, or 11.3%. Their
-intervals are wide—approximately 4.7% to 21.9%—and still cross the 5% target.
+intervals are wide - approximately 4.7% to 21.9% - and still cross the 5% target.
 At 99% VaR, however, every model's interval is above the 1% target.
 
 ### Important limitation
