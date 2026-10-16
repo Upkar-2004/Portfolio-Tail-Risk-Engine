@@ -1,5 +1,11 @@
 # Project Charter
 
+> **Status note:** This is the long-term project charter. The tested Python
+> research baseline described as release `v0.1.0` is complete. The C++ core,
+> Python bindings, broader robustness studies, and paper-specific experiments
+> are independent extensions; they are not prerequisites for the current
+> findings or portfolio release.
+
 ## 1. Project overview
 
 The Portfolio Tail-Risk Engine is a research and software-engineering project for studying one-day portfolio loss forecasts. It will compare a simple rolling Gaussian model with models that respond to changing volatility and non-Gaussian return behaviour.

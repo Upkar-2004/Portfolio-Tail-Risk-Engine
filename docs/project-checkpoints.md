@@ -4,10 +4,10 @@ Last updated: 2026-10-16
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
-**Current phase:** Results visualization and interpretation
+**Current phase:** `v0.1.0` portfolio release and public documentation
 
-**Next checkpoint:** Build the concise publication-facing results summary and
-GitHub figure gallery without changing the completed statistical protocol.
+**Next checkpoint:** Commit and push the public documentation, verify the
+remote from a fresh clone, and tag the baseline release.
 
 ## 1. Project definition and research scope
 
@@ -19,7 +19,8 @@ GitHub figure gallery without changing the completed statistical protocol.
 - [x] Document the initial methodology and data-source policies.
 - [x] Select the 11-company baseline universe.
 - [x] Fix the requested sample period from 2010-01-01 through the exclusive end date 2026-01-01.
-- [ ] Finalize all experiment decisions listed in `docs/methodology.md` before the relevant backtests begin.
+- [x] Finalize the baseline experiment decisions used by the completed
+  backtests; require separate precommitment for future extensions.
 
 ## 2. Python project foundation
 
@@ -321,22 +322,44 @@ GitHub figure gallery without changing the completed statistical protocol.
 - [ ] Design the terminal interface and command structure.
 - [x] Add commands for raw-data retrieval, return processing, portfolio construction,
   and descriptive portfolio diagnostics.
-- [ ] Provide commands for downloading, validating, processing, backtesting, and reporting.
+- [x] Provide commands for downloading, validating, processing, backtesting,
+  and reporting.
 - [ ] Support explicit configuration-file selection.
 - [ ] Display readable progress, validation summaries, and actionable errors.
 - [ ] Add a single reproducibility command for the permitted end-to-end workflow.
-- [ ] Document setup and usage in `README.md`.
+- [x] Document concise setup in `README.md` and the complete staged workflow in
+  `docs/reproduction.md`.
 
 ## 16. Results, robustness, and final delivery
 
-- [ ] Generate reproducible result tables and figures.
-- [ ] Interpret calibration, exceedance clustering, and tail-loss severity.
-- [ ] Record limitations, unexpected findings, and negative results.
-- [ ] Run robustness checks with alternative permitted settings.
+- [x] Generate reproducible result tables and figures for the Python baseline.
+- [x] Interpret calibration, exceedance clustering, predictive accuracy, and
+  tail-loss severity.
+- [x] Record limitations, unexpected findings, and negative results.
+- [x] Run and document the predeclared predictive-accuracy HAC-bandwidth
+  sensitivity check.
 - [ ] Consider expanding beyond 11 companies only after the baseline study is complete.
-- [ ] Complete the final technical report and methodology record.
+- [x] Complete the current baseline results and methodology records.
 - [ ] Run all Python, C++, binding, and reproducibility checks from a clean checkout.
 - [ ] Tag a final reproducible release.
+
+## 17. Portfolio-facing `v0.1.0` release
+
+- [x] Rewrite the README as an extensible research-project landing page.
+- [x] Move the complete operational command reference to
+  `docs/reproduction.md`.
+- [x] Add a concise results summary and curated GitHub figure gallery.
+- [x] Present the tested Python baseline as complete without implying that the
+  long-term research program has ended.
+- [x] Add a release-based roadmap and an explicit extension contract.
+- [x] Catalogue the tracked publication figures and companion tables.
+- [x] Complete the clean-environment installation and test audit.
+- [x] Verify every public Markdown link and tracked publication asset.
+- [ ] Recheck the pushed release commit from a fresh clone of the public
+  repository.
+- [x] Replace the license placeholder with an explicit all-rights-reserved
+  notice.
+- [ ] Tag the audited baseline as `v0.1.0`.
 
 ## Update rule
 

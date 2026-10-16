@@ -1,308 +1,217 @@
 # Portfolio Tail-Risk Engine
 
-## Project status
+[![Tests](https://github.com/Upkar-2004/Portfolio-Tail-Risk-Engine/actions/workflows/tests.yml/badge.svg)](https://github.com/Upkar-2004/Portfolio-Tail-Risk-Engine/actions/workflows/tests.yml)
 
-See the [project checkpoint list](docs/project-checkpoints.md) for completed work, the current phase, and upcoming milestones.
+A reproducible research engine for comparing one-day portfolio Value at Risk
+(VaR) and Expected Shortfall (ES) forecasts across changing market regimes.
 
-## Risk-model backtests
+- **Current baseline:** `v0.1.0` Python research baseline
+- **Baseline status:** complete, tested, and documented
+- **Validation:** 650 automated tests
 
-Run the configured 100,000-scenario rolling Gaussian baseline from the
-project root. Rolling Gaussian remains the default model:
+## Research question
 
-```bash
-.venv/bin/python scripts/run_backtest.py \
-  data/processed/20260825T162125895465Z_baseline_11_asset \
-  data/portfolio/20260825T162125895465Z_baseline_11_asset
+Do models that respond to changing volatility and non-Gaussian returns produce
+better one-day portfolio tail-risk forecasts than a conventional rolling
+Gaussian model?
+
+The baseline study compares three methods on the same 11-asset portfolio,
+forecast dates, realized losses, confidence levels, and scoring rules:
+
+| Model | Role in the comparison |
+| --- | --- |
+| Rolling Gaussian | Fixed-window Gaussian benchmark |
+| EWMA Gaussian | Tests whether faster covariance adaptation improves forecasts |
+| Filtered Historical Simulation | Adds filtered empirical innovations and non-Gaussian tails |
+
+The experiment covers 3,519 one-day-ahead forecasts from 2012 through 2025.
+Each model produces 95%, 97.5%, and 99% VaR and ES estimates from 100,000
+scenarios per forecast date.
+
+## Results at a glance
+
+- After Holm adjustment, EWMA or FHS significantly outperformed Rolling
+  Gaussian in 6 of the 12 adaptive-model-versus-benchmark comparisons across
+  the two score families and three confidence levels.
+- EWMA and FHS were not statistically distinguishable from one another in any
+  full-sample comparison. Their relative advantage depends on whether VaR is
+  scored alone or VaR and ES are scored jointly.
+- Calibration varied materially through time. All three models underestimated
+  99% tail risk during the February-April 2020 contraction, with the Rolling
+  Gaussian model showing the largest exception-rate miss.
+- Lag-zero HAC inference would produce five additional rejections. The primary
+  automatic-bandwidth Newey-West specification is therefore retained as the
+  more conservative result.
+
+These claims distinguish descriptive subperiod patterns from the project's
+primary full-sample, multiplicity-adjusted inference. See
+[`docs/results.md`](docs/results.md) for the complete interpretation and
+limitations.
+
+## Featured result
+
+[![Full-sample predictive-accuracy comparisons](reports/figures/predictive_accuracy_dm_comparison.png)](reports/figures/predictive_accuracy_dm_comparison.svg)
+
+The figure reports full-sample pairwise predictive-accuracy statistics for VaR
+quantile loss and joint VaR-ES FZ0 loss. Negative values favor the first named
+model. Filled markers denote Holm-adjusted rejection within the relevant
+nine-test score family; daggers identify conclusions that are sensitive to
+using HAC lag zero instead of the primary automatic bandwidth.
+
+## Figure gallery
+
+### Calibration through time
+
+[![Subperiod exception-rate heatmap](reports/figures/subperiod_exception_rate_heatmap.png)](reports/figures/subperiod_exception_rate_heatmap.svg)
+
+Observed VaR exception rates vary substantially across years and during the
+separately defined 2020 stress period. Color represents the observed rate minus
+the nominal exception rate; it is a descriptive diagnostic rather than a
+pass-or-fail test.
+
+### Which model ranked first?
+
+[![Predictive-score first-place summary](reports/figures/subperiod_predictive_first_place_summary.png)](reports/figures/subperiod_predictive_first_place_summary.svg)
+
+EWMA leads most often for VaR quantile loss at 95% and 97.5%, while FHS becomes
+more competitive at 99% and when VaR and ES are evaluated jointly. The annual
+counts describe the pattern; the full-sample figure above carries the formal
+inference.
+
+Additional publication figures and their companion tables are catalogued in
+[`reports/`](reports/README.md).
+
+## Statistical and engineering scope
+
+The current baseline includes:
+
+- fixed-window rolling Gaussian, EWMA Gaussian, and filtered historical
+  simulation forecasts;
+- a common no-look-ahead forecast schedule and beginning-of-session portfolio
+  weights;
+- Kupiec unconditional coverage and Christoffersen independence and
+  conditional-coverage tests;
+- exact Clopper-Pearson exception-rate intervals and descriptive tail-severity
+  diagnostics;
+- joint VaR-ES calibration diagnostics;
+- quantile loss, FZ0 loss, and pairwise predictive-accuracy comparisons;
+- Newey-West HAC uncertainty and predeclared Holm multiple-testing families;
+- Basel-style rolling 250-session traffic-light diagnostics;
+- checksum-verified, non-overwriting data and result snapshots; and
+- deterministic publication figures generated from verified result tables.
+
+The engine uses the positive-loss convention: portfolio loss is the negative
+of portfolio return, and ES is at least as large as VaR.
+
+## Research pipeline
+
+```text
+Market data
+    -> validated raw snapshot
+    -> asset-return snapshot
+    -> portfolio path and realized losses
+    -> aligned rolling forecasts from each model
+    -> calibration, severity, and predictive-accuracy evaluation
+    -> immutable result snapshots
+    -> tracked publication figures and compact tables
 ```
 
-Run the EWMA Gaussian baseline over the same forecast timeline and with the
-same simulation settings:
+Every generated snapshot records its configuration, source lineage, and
+SHA-256 checksums. Large raw data and forecast artifacts remain local, while
+selected figures and small tables are committed under `reports/`.
 
-```bash
-.venv/bin/python scripts/run_backtest.py \
-  data/processed/20260825T162125895465Z_baseline_11_asset \
-  data/portfolio/20260825T162125895465Z_baseline_11_asset \
-  --model ewma-gaussian
+## Repository structure
+
+```text
+configs/             Versioned experiment definitions
+python/tailrisk/     Research engine and statistical implementation
+python/tailrisk/figures/
+                     Figure-family modules using one shared house style
+scripts/             Reproducible data, backtest, evaluation, and report commands
+tests/python/        Unit, integration, boundary, and artifact tests
+docs/                Methodology, decisions, results, roadmap, and reproduction
+reports/             Curated publication figures and compact result tables
+data/                Local generated snapshots; policies are tracked, data are not
+cpp/                 Documented future numerical-acceleration phase
 ```
 
-Run the filtered historical simulation baseline with the same EWMA covariance
-filter, forecast timeline, and simulation settings:
+## Quick start
+
+Python 3.12 or newer is required.
 
 ```bash
-.venv/bin/python scripts/run_backtest.py \
-  data/processed/20260825T162125895465Z_baseline_11_asset \
-  data/portfolio/20260825T162125895465Z_baseline_11_asset \
-  --model filtered-historical
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -e ".[dev]"
+.venv/bin/pytest -q
 ```
 
-For a faster workflow check, override only the scenario count and write to a
-temporary output directory:
+The full baseline is intentionally more substantial than a quick demo: it
+downloads market data and runs three 3,519-date, 100,000-scenario backtests.
+The complete staged workflow, smoke-test command, official snapshot lineage,
+and every reporting command are documented in
+[`docs/reproduction.md`](docs/reproduction.md).
 
-```bash
-.venv/bin/python scripts/run_backtest.py \
-  data/processed/20260825T162125895465Z_baseline_11_asset \
-  data/portfolio/20260825T162125895465Z_baseline_11_asset \
-  --model filtered-historical \
-  --scenario-count 1000 \
-  --output-root /tmp/portfolio-tail-risk-smoke
-```
+## Extension contract
 
-Every saved snapshot contains `forecasts.csv` and `metadata.json`. The command
-reloads the snapshot and verifies its checksum and forecast structure before
-reporting success.
+The repository is designed so the completed baseline remains reproducible as
+the research program grows. A new model or empirical extension should add:
 
-Validate the saved EWMA Monte Carlo forecasts against closed-form Gaussian
-VaR and Expected Shortfall across the complete forecast timeline:
+1. a configuration or predeclared protocol;
+2. an implementation behind the existing data and forecast contracts;
+3. controlled tests and cross-model alignment checks;
+4. a methodology and decision-log update;
+5. a versioned, checksum-verified result snapshot; and
+6. generated publication artifacts with an explicit inferential status.
 
-```bash
-.venv/bin/python scripts/report_ewma_validation.py \
-  data/processed/20260825T162125895465Z_baseline_11_asset \
-  data/portfolio/20260825T162125895465Z_baseline_11_asset \
-  data/backtests/20261006T151840866317Z_baseline_11_asset_ewma_gaussian_monte_carlo
-```
+Reusable engine changes return to `main`. Paper-specific configurations,
+tables, and manuscripts can live under future `papers/` subdirectories and
+reference a tagged engine release instead of maintaining divergent copies of
+the core code.
 
-## VaR coverage evaluation
+## Release and extension path
 
-Generate the shared VaR coverage report after all three baseline backtests
-have been saved:
+`v0.1.0` is the completed Python baseline and is suitable for portfolio and
+resume presentation. Planned extensions build on it rather than redefine it:
 
-```bash
-.venv/bin/python scripts/report_var_coverage.py \
-  data/portfolio/20260825T162125895465Z_baseline_11_asset \
-  data/backtests/20261005T021450532620Z_baseline_11_asset_rolling_gaussian_monte_carlo \
-  data/backtests/20261006T151840866317Z_baseline_11_asset_ewma_gaussian_monte_carlo \
-  data/backtests/20261011T112940733142Z_baseline_11_asset_filtered_historical_simulation
-```
+- additional conditional-volatility and tail-distribution models;
+- robustness across portfolio constructions and stress definitions;
+- formal regime-comparison extensions;
+- a validated C++ numerical simulation core with thin Python bindings; and
+- paper-specific experiments based on frozen configurations and release tags.
 
-The command checksum-verifies the three source backtests, requires identical
-forecast dates and realized losses, and prints one row for each of the nine
-model-confidence combinations. It reports exceedance counts, transition
-counts, Kupiec unconditional coverage, Christoffersen independence,
-Christoffersen conditional coverage, and Holm-adjusted conditional-coverage
-decisions.
+The current Python findings do not depend on those future phases.
 
-Each run saves a versioned `var_coverage.csv` and `metadata.json` under
-`data/evaluations/`. These generated reports remain local and are excluded
-from Git; the metadata records the source-backtest checksums and statistical
-decision rules needed to reproduce the table.
+## Documentation
 
-## Expected Shortfall tail-severity evaluation
+- [`docs/methodology.md`](docs/methodology.md): mathematical definitions,
+  timing conventions, and statistical procedures
+- [`docs/results.md`](docs/results.md): detailed findings, captions, and
+  limitations
+- [`docs/reproduction.md`](docs/reproduction.md): installation and complete
+  command reference
+- [`docs/decisions.md`](docs/decisions.md): append-only research and engineering
+  decisions
+- [`docs/project-checkpoints.md`](docs/project-checkpoints.md): verified
+  milestones, snapshot identifiers, and checksums
+- [`docs/roadmap.md`](docs/roadmap.md): release-based extension plan
+- [`docs/portfolio-case-study.md`](docs/portfolio-case-study.md): concise copy
+  for a resume and portfolio website
+- [`docs/data-sources.md`](docs/data-sources.md): data provenance and use policy
+- [`docs/project-charter.md`](docs/project-charter.md): long-term research and
+  engineering scope
 
-Generate the shared descriptive tail-severity report after all three baseline
-backtests have been saved:
+## Limitations
 
-```bash
-.venv/bin/python scripts/report_es_tail_severity.py \
-  data/portfolio/20260825T162125895465Z_baseline_11_asset \
-  data/backtests/20261005T021450532620Z_baseline_11_asset_rolling_gaussian_monte_carlo \
-  data/backtests/20261006T151840866317Z_baseline_11_asset_ewma_gaussian_monte_carlo \
-  data/backtests/20261011T112940733142Z_baseline_11_asset_filtered_historical_simulation
-```
+This is a research system, not a production trading, pricing, or regulatory
+capital platform. The baseline uses daily data, a linear long-only portfolio,
+one-day horizons, three model families, and a fixed historical universe.
+Subperiod figures are descriptive unless the documentation explicitly states
+otherwise. Market-data availability and revisions can also prevent a later
+download from being byte-identical to the preserved baseline snapshot.
 
-The command checksum-verifies the source backtests, requires identical
-ordered forecast rows and realized losses, and prints one row for each of the
-nine model-confidence combinations. It reports the VaR-exceedance count,
-mean realized exceedance loss, mean VaR and Expected Shortfall on exceedance
-dates, mean, median, and maximum loss excess over VaR, and the mean realized
-loss minus forecast Expected Shortfall.
+## License
 
-Each run saves a versioned `es_tail_severity.csv` and `metadata.json` under
-`data/evaluations/`. The metadata records the source-backtest checksums, the
-strict VaR-exceedance rule, the ES-VaR ordering tolerance, and the descriptive
-status of the results. These conditional summaries are diagnostics and must
-not be interpreted as formal pairwise model rankings.
-
-## Joint VaR-Expected-Shortfall calibration
-
-Generate the formal joint-calibration report from the same three verified
-baseline backtests:
-
-```bash
-.venv/bin/python scripts/report_var_es_joint_calibration.py \
-  data/portfolio/20260825T162125895465Z_baseline_11_asset \
-  data/backtests/20261005T021450532620Z_baseline_11_asset_rolling_gaussian_monte_carlo \
-  data/backtests/20261006T151840866317Z_baseline_11_asset_ewma_gaussian_monte_carlo \
-  data/backtests/20261011T112940733142Z_baseline_11_asset_filtered_historical_simulation
-```
-
-The command verifies the source checksums and lineage, calculates the
-all-session joint VaR-ES identification residual, and tests its mean using
-Newey-West HAC uncertainty. It records the selected bandwidth and reports raw
-and Holm-adjusted decisions across the nine model-confidence hypotheses.
-
-Each run saves a versioned `var_es_joint_calibration.csv` and `metadata.json`
-under `data/evaluations/`. The metadata records the residual definition, HAC
-kernel and bandwidth rule, significance level, Holm family, source snapshots,
-and output checksum required to reproduce the report.
-
-## Pairwise predictive-accuracy evaluation
-
-Generate the formal model-comparison report from the three verified baseline
-backtests:
-
-```bash
-.venv/bin/python scripts/report_predictive_accuracy.py \
-  data/portfolio/20260825T162125895465Z_baseline_11_asset \
-  data/backtests/20261005T021450532620Z_baseline_11_asset_rolling_gaussian_monte_carlo \
-  data/backtests/20261006T151840866317Z_baseline_11_asset_ewma_gaussian_monte_carlo \
-  data/backtests/20261011T112940733142Z_baseline_11_asset_filtered_historical_simulation
-```
-
-The command checksum-verifies the source forecasts and their common portfolio
-lineage. It calculates daily VaR quantile loss and joint VaR-Expected-Shortfall
-FZ0 loss, then runs two-sided pairwise Diebold-Mariano tests with Newey-West
-HAC uncertainty for all three model pairs at all three confidence levels. A
-negative model-A-minus-model-B mean score difference favors model A; a positive
-difference favors model B.
-
-The resulting `predictive_accuracy.csv` contains 18 rows: nine quantile-loss
-comparisons and nine FZ0 comparisons. Holm adjustment is applied separately
-within those two nine-test families. The accompanying `metadata.json` records
-the score direction, null hypothesis, HAC kernel and bandwidth rule,
-significance level, separate Holm families, source snapshot checksums, and
-output checksum.
-
-Generate the publication figure and companion magnitude table from the
-verified baseline report, the verified subperiod score table, and the
-bandwidth-zero sensitivity report:
-
-```bash
-.venv/bin/python scripts/report_predictive_accuracy_figure.py \
-  data/evaluations/20261014T014947595076Z_baseline_11_asset_predictive_accuracy \
-  data/evaluations/20261014T170317535380Z_baseline_11_asset_subperiod_analysis \
-  data/evaluations/20261016T174625930461Z_baseline_11_asset_predictive_accuracy
-```
-
-The figure uses the fixed display order EWMA minus Rolling Gaussian, FHS minus
-Rolling Gaussian, and FHS minus EWMA, so negative statistics always favor the
-first named model. Marker color and shape identify the sample winner, filled
-markers denote Holm-adjusted rejection, and a dagger flags decisions that
-become significant when the Newey-West bandwidth is set to zero; the reported
-automatic-bandwidth specification is more conservative in those cases. The
-accompanying table reports raw mean score differences and, for quantile loss
-only, the percentage difference relative to the second model's mean score. The
-command verifies all source checksums and refreshes the stable files under
-`reports/` while also preserving an immutable versioned snapshot under
-`data/evaluations/`.
-
-## Basel-style rolling traffic-light evaluation
-
-Generate the rolling 99% VaR monitoring report from the three verified
-baseline backtests:
-
-```bash
-.venv/bin/python scripts/report_basel_traffic_light.py \
-  data/portfolio/20260825T162125895465Z_baseline_11_asset \
-  data/backtests/20261005T021450532620Z_baseline_11_asset_rolling_gaussian_monte_carlo \
-  data/backtests/20261006T151840866317Z_baseline_11_asset_ewma_gaussian_monte_carlo \
-  data/backtests/20261011T112940733142Z_baseline_11_asset_filtered_historical_simulation
-```
-
-The command verifies each source checksum and the shared portfolio lineage,
-then counts strict 99% VaR exceptions over complete rolling 250-session
-windows. It assigns the current Basel labels green for zero through four
-exceptions, amber for five through nine, and red for ten or more. The output
-is a Basel-style research diagnostic rather than a claim of regulatory
-compliance.
-
-Each run saves `basel_traffic_light_path.csv`,
-`basel_traffic_light_summary.csv`, `basel_traffic_light.png`,
-`basel_traffic_light.svg`, and `metadata.json` under a versioned directory in
-`data/evaluations/`. The detailed path stores textual zone labels rather than
-presentation colours. The compact summary reports latest and worst zones,
-maximum exception counts and dates, zone counts and rates, and first amber and
-red dates. The publication figure presents the three model paths in aligned
-panels with shared axes, directly labelled zones, and visible five- and
-ten-exception boundaries. Metadata records the thresholds, figure design,
-official Basel reference, source snapshots, and checksums for both CSVs and
-both figures.
-
-## Descriptive subperiod analysis
-
-Generate all five predeclared calendar-year and NBER-period tables together:
-
-```bash
-.venv/bin/python scripts/report_subperiod_analysis.py \
-  data/portfolio/20260825T162125895465Z_baseline_11_asset \
-  data/backtests/20261005T021450532620Z_baseline_11_asset_rolling_gaussian_monte_carlo \
-  data/backtests/20261006T151840866317Z_baseline_11_asset_ewma_gaussian_monte_carlo \
-  data/backtests/20261011T112940733142Z_baseline_11_asset_filtered_historical_simulation
-```
-
-The command verifies the source checksums and shared portfolio lineage before
-creating `subperiod_definitions.csv`, `subperiod_var_coverage.csv`,
-`subperiod_es_tail_severity.csv`, `subperiod_joint_calibration.csv`, and
-`subperiod_predictive_accuracy.csv` in one new, non-overwriting directory
-under `data/evaluations/`. Its metadata records every output checksum, the
-fixed 2012–2025 calendar and February–April 2020 NBER rules, pointwise exact
-interval status, sparse-tail thresholds, and within-period scoring rules.
-
-This report is a descriptive secondary analysis. It adds no subperiod
-hypothesis tests, rejection decisions, or multiple-testing family; the
-completed full-sample inference remains primary.
-
-Generate the publication subperiod exception-rate figures from that verified
-snapshot:
-
-```bash
-.venv/bin/python scripts/report_subperiod_exception_rates.py \
-  data/evaluations/20261014T170317535380Z_baseline_11_asset_subperiod_analysis
-```
-
-The command verifies the saved VaR-coverage checksum before plotting. It
-creates a new immutable figure directory under `data/evaluations/`, records
-PNG and SVG checksums plus source lineage, and refreshes four stable tracked
-copies:
-
-- `reports/figures/subperiod_exception_rate_heatmap.png` and `.svg`;
-- `reports/figures/subperiod_exception_rate_intervals.png` and `.svg`.
-
-The heatmap's three confidence-level panels show observed minus nominal annual
-exception rates in percentage points. The interval figure shows observed
-rates with pointwise 95% Clopper-Pearson exact binomial intervals and dashed
-nominal-rate references. Its annual panels use confidence-level-specific scales
-so the rarer tails remain legible. Pale-green central 95% binomial reference
-ranges use 252 sessions in the annual panels and 62 sessions in the stress
-panels. Both figures keep the overlapping February-April 2020 NBER case study
-separate from the calendar-year panels. These displays are descriptive; their
-pointwise intervals are not simultaneous or multiplicity-adjusted, the
-reference ranges are not new decision rules, and neither figure replaces the
-primary full-sample tests.
-
-Generate the main predictive-score summary, supporting annual rank grid, and
-companion score table from the same verified snapshot:
-
-```bash
-.venv/bin/python scripts/report_subperiod_predictive_scores.py \
-  data/evaluations/20261014T170317535380Z_baseline_11_asset_subperiod_analysis
-```
-
-The command checksum-verifies `subperiod_predictive_accuracy.csv`, creates a
-new immutable report directory with traced checksums, and refreshes these
-stable publication files:
-
-- `reports/figures/subperiod_predictive_first_place_summary.png` and `.svg`;
-- `reports/figures/subperiod_predictive_annual_ranks.png` and `.svg`; and
-- `reports/tables/subperiod_predictive_scores.csv`.
-
-The main-text summary plots calendar-year first-place counts for QL and FZ0 by
-confidence level. The dashed 14/3 line is an even-split visual reference, not a
-test. The supporting grid groups confidence levels within QL and FZ0, colors
-rank-one cells with the winning model's house color, and preserves the separate
-February-April 2020 stress strip. The companion table reports all period-average
-score magnitudes and ranks. No subperiod Diebold-Mariano statistics or
-significance decisions are added.
-
-The immutable report directory also stores an unchanged checksum-matching copy
-of `subperiod_predictive_accuracy.csv` beside the figures, companion table, and
-metadata. The tracked publication files remain generated outputs and must not
-be edited by hand.
-
-### Figure house style
-
-Shared model identities, colors, markers, typography, semantic palettes, and
-plotting helpers live in `python/tailrisk/style.py`. Production visualization
-code imports those definitions instead of maintaining separate copies. The
-module supports a paper genre and a report genre, plus a local style context so
-figure settings do not leak between tests or report commands. Its behavioral
-guards live in `tests/python/test_style.py`.
+Copyright (c) 2026 Upkar Singh. All rights reserved. No license is currently
+granted for reuse, modification, or redistribution. See [`LICENSE`](LICENSE)
+for the complete notice.
