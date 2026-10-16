@@ -207,6 +207,20 @@ GitHub figure gallery without changing the completed statistical protocol.
   `20261014T014947595076Z_baseline_11_asset_predictive_accuracy`; its CSV
   SHA-256 is
   `0793527ab2c0fc44687103a7d34149ee78bc1a07892fc107fd1f915b4f5e3f1e`.
+- [x] Generate the predeclared bandwidth-zero predictive-accuracy sensitivity
+  report as snapshot
+  `20261016T174625930461Z_baseline_11_asset_predictive_accuracy`; its CSV
+  SHA-256 is
+  `7803a24f77f6d676e4b6b43f6433b134d48b0e0b75a47c20e103d331dd18699c`.
+- [x] Create and visually verify the full-sample predictive-accuracy inference
+  figure and companion magnitude table. The figure snapshot is
+  `20261016T182508090910Z_baseline_11_asset_predictive_accuracy_figure`.
+  The PNG and SVG SHA-256 values are
+  `659442f9d1091618eeb08506c0f854f05b166640ed00d6492457e7757b4725c9`
+  and
+  `ed6d845a4bb4eb67edbbe1a59302e2b7c08ea237df01b3d748ba26d539d826e4`.
+  The companion-table SHA-256 is
+  `245da916583be865b86c550ef84fd42e0d8749d1b0eb0cb70451efd9bb5621a3`.
 - [x] Compare all models without assuming that greater complexity performs
   better.
 - [x] Implement and test the 99% VaR, 250-session Basel-style traffic-light

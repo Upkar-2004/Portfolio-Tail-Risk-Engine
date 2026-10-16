@@ -162,6 +162,29 @@ the score direction, null hypothesis, HAC kernel and bandwidth rule,
 significance level, separate Holm families, source snapshot checksums, and
 output checksum.
 
+Generate the publication figure and companion magnitude table from the
+verified baseline report, the verified subperiod score table, and the
+bandwidth-zero sensitivity report:
+
+```bash
+.venv/bin/python scripts/report_predictive_accuracy_figure.py \
+  data/evaluations/20261014T014947595076Z_baseline_11_asset_predictive_accuracy \
+  data/evaluations/20261014T170317535380Z_baseline_11_asset_subperiod_analysis \
+  data/evaluations/20261016T174625930461Z_baseline_11_asset_predictive_accuracy
+```
+
+The figure uses the fixed display order EWMA minus Rolling Gaussian, FHS minus
+Rolling Gaussian, and FHS minus EWMA, so negative statistics always favor the
+first named model. Marker color and shape identify the sample winner, filled
+markers denote Holm-adjusted rejection, and a dagger flags decisions that
+become significant when the Newey-West bandwidth is set to zero; the reported
+automatic-bandwidth specification is more conservative in those cases. The
+accompanying table reports raw mean score differences and, for quantile loss
+only, the percentage difference relative to the second model's mean score. The
+command verifies all source checksums and refreshes the stable files under
+`reports/` while also preserving an immutable versioned snapshot under
+`data/evaluations/`.
+
 ## Basel-style rolling traffic-light evaluation
 
 Generate the rolling 99% VaR monitoring report from the three verified

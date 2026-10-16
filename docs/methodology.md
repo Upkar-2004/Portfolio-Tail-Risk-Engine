@@ -1709,6 +1709,30 @@ procedure. Joint VaR-ES score comparisons by DM tests are supported directly
 by the joint-elicitability literature
 ([Fissler, Ziegel, and Gneiting, 2016](https://arxiv.org/abs/1507.00244)).
 
+Because all three forecasting methods are re-estimated through time using a
+fixed 504-session historical design, the reported DM-form statistic is
+interpreted as a Giacomini-White unconditional test of forecasting methods
+with a constant test function. The comparison therefore includes the effect
+of parameter estimation and evaluates the implemented forecasting procedures,
+not hypothetical population models with known parameters
+([Giacomini and White, 2006](https://doi.org/10.1111/j.1468-0262.2006.00676.x)).
+
+The primary report uses the deterministic automatic Newey-West bandwidth,
+which is $K=8$ for the 3,519-session baseline. A separately preserved
+sensitivity report repeats the complete analysis with $K=0$. This alternative
+removes lagged autocovariances from the long-run variance estimate; it is a
+robustness diagnostic and does not replace the predeclared primary procedure.
+Any change in a Holm-adjusted decision is explicitly marked in the figure and
+reported in the companion table.
+
+For presentation only, comparisons are reoriented as EWMA minus Rolling
+Gaussian, FHS minus Rolling Gaussian, and FHS minus EWMA. Consequently, a
+negative plotted statistic always favors the first named model. Reorientation
+changes only the sign of the mean differential and statistic; it does not
+change the two-sided p-value or Holm decision. The figure uses a zero reference
+line rather than fixed $\pm 1.96$ lines because Holm is a step-down procedure
+and has no single common critical statistic across its nine-test family.
+
 ### 8.8 Basel-style rolling traffic-light diagnostic
 
 The Basel market-risk backtesting framework classifies a 99% one-day VaR model

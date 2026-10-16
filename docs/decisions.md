@@ -393,3 +393,43 @@ already visible exception paths.
   for the primary full-sample conclusions.
 - Formal regime inference or additional market-stress definitions require a
   new precommitment before their results are calculated.
+
+## 2026-10-16: Fixed the predictive-inference display and sensitivity check
+
+**Status:** Accepted
+
+### Context
+
+The full-sample comparison needs to communicate direction, multiplicity-
+adjusted inference, and economic magnitude without implying that Holm has one
+common critical DM statistic. Because the methods use fixed-length rolling
+estimation, the interpretation must also distinguish forecasting procedures
+from known-parameter population models.
+
+### Decision
+
+- Display EWMA minus Rolling Gaussian, FHS minus Rolling Gaussian, and FHS
+  minus EWMA, so a negative statistic always favors the first named model.
+- Plot a zero reference only. Print each Holm-adjusted p-value rather than
+  drawing unadjusted $\pm 1.96$ reference lines.
+- Use the sample winner's house color and marker. Use filled markers for
+  Holm-adjusted rejection and open markers for non-rejection.
+- Interpret the DM-form statistic as a Giacomini-White unconditional test of
+  forecasting methods with a constant test function under the fixed
+  504-session estimation design.
+- Retain the automatic Newey-West bandwidth as primary and rerun the same two
+  nine-test Holm families at bandwidth zero as a sensitivity check.
+- Mark every adjusted decision that changes under bandwidth zero with a dagger.
+- Report raw mean score differences in a companion table. Report percentage
+  differences only for positive quantile-loss means, not for FZ0 levels.
+
+### Consequences
+
+- The figure's direction is consistent across every row and does not require
+  readers to decode changing source-table order.
+- Fill remains tied to the declared Holm decisions, not to a misleading common
+  critical-value line.
+- Lag-zero rejections cannot replace the predeclared primary conclusions;
+  changes are reported as sensitivity to serial-dependence treatment.
+- The figure carries formal inference while the companion table carries score
+  magnitude, keeping statistical and economic interpretation distinct.

@@ -237,3 +237,70 @@ change from rank 1 to rank 2 may still reflect a very small difference. No
 subperiod Diebold-Mariano statistics were calculated, and the line positions
 and cell colors must not be interpreted as local significance decisions. Formal
 inference remains the completed full-sample, multiplicity-adjusted comparison.
+
+## Full-sample predictive-accuracy inference
+
+### How to read the figure and companion table
+
+The two panels report full-sample predictive-accuracy comparisons for VaR
+quantile loss and joint VaR-Expected-Shortfall FZ0 loss. Each row is oriented
+as the first named model minus the second. Negative DM statistics therefore
+favor the first named model, while positive statistics favor the second.
+Marker color and shape identify the model with the smaller sample-average
+score. Filled markers denote rejection after Holm adjustment within the nine
+comparisons for that score family; open markers denote non-rejection. The
+right-hand column prints the corresponding Holm-adjusted p-value.
+Holm-adjusted p-values are monotone under the step-down procedure, so repeated
+adjusted values are expected and do not indicate duplicated calculations.
+
+The companion table reports the underlying raw mean score differential. For
+quantile loss it also reports that differential as a percentage of the second
+model's full-sample mean score. No percentage ratio is reported for FZ0 because
+its level may be negative and the ratio would not have a stable economic
+interpretation. A dagger marks a comparison whose adjusted decision changes
+when the Newey-West bandwidth is changed from the primary automatic value of
+8 to zero.
+
+### Figure caption
+
+> **Figure 4.** Full-sample Diebold-Mariano statistics for pairwise differences
+> in mean loss, $d=S_{\mathrm{first}}-S_{\mathrm{second}}$; negative values
+> favor the first model. Panel (a) reports quantile loss for VaR, and panel (b)
+> reports FZ0 loss for joint VaR-Expected-Shortfall forecasts. Marker shape and
+> color identify the model with lower mean loss; filled markers denote
+> Holm-adjusted $p<0.05$, with adjustment within each nine-test score family.
+> Holm-adjusted p-values are monotone, so ties occur. Standard errors use
+> Newey-West HAC with Bartlett weights and
+> $K=\min\{T-1,\lfloor4(T/100)^{2/9}\rfloor\}=8$ for the 3,519-session
+> baseline. The dagger marks comparisons that become significant at 5% with
+> HAC lag zero; the reported automatic-bandwidth specification is more
+> conservative. With fixed 504-session rolling estimation windows, the
+> statistic is interpreted as a Giacomini-White unconditional test of
+> forecasting methods.
+
+### Main finding
+
+The full-sample evidence supports selected advantages of the adaptive methods
+over Rolling Gaussian, but it does not establish a statistically reliable
+difference between EWMA and FHS. After separate Holm adjustment for the two
+nine-test families, quantile loss rejects equal predictive accuracy for EWMA
+versus Rolling Gaussian at 95% and 97.5%, and for FHS versus Rolling Gaussian
+at 95%. FZ0 rejects equality for EWMA versus Rolling Gaussian at 95%, and for
+FHS versus Rolling Gaussian at 95% and 97.5%. No EWMA-versus-FHS comparison is
+significant at any confidence level for either score.
+
+This is not contradicted by EWMA's ten first-place calendar years for 95% and
+97.5% quantile loss. Annual win counts ignore the size of each win, whereas the
+full-sample comparison uses every daily loss differential and its estimated
+long-run variance. The annual display is descriptive; the full-sample,
+multiplicity-adjusted analysis carries the formal inferential claim.
+
+### Bandwidth sensitivity
+
+The lag-zero sensitivity analysis changes five Holm decisions: FHS versus
+Rolling Gaussian for 97.5% quantile loss; EWMA and FHS versus Rolling Gaussian
+for 99% quantile loss; EWMA versus Rolling Gaussian for 97.5% FZ0; and FHS
+versus Rolling Gaussian for 99% FZ0. In every case the primary automatic-
+bandwidth analysis does not reject while the lag-zero analysis does. These
+comparisons are therefore described as sensitive to the treatment of serial
+dependence rather than promoted to primary findings.
