@@ -1288,8 +1288,10 @@ quantile $q$, and $0<\tau<1$, the quantile or pinball loss is
 ```math
 Q_{\tau}(y,q)
 =
-(\tau-\mathbf{1}_{\{y<q\}})(y-q).
+(\tau-\mathbf{1}(y<q))(y-q).
 ```
+
+Here, $\mathbf{1}(y<q)$ equals one when $y<q$ and zero otherwise.
 
 Equivalently,
 
