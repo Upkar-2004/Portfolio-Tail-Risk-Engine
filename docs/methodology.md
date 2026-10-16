@@ -116,11 +116,11 @@ unit. If dollar risk is required for reporting, the corresponding forecasts
 are obtained without changing the statistical model:
 
 ```math
-\operatorname{VaR}^{\mathrm{USD}}_{t,\alpha}
+\mathrm{VaR}^{\mathrm{USD}}_{t,\alpha}
 =
 V_{t-1}q_{t,\alpha},
 \qquad
-\operatorname{ES}^{\mathrm{USD}}_{t,\alpha}
+\mathrm{ES}^{\mathrm{USD}}_{t,\alpha}
 =
 V_{t-1}e_{t,\alpha}.
 ```
@@ -247,7 +247,7 @@ The analytic one-session Gaussian forecasts are then
 ```math
 q_{t,\alpha}^{\mathrm{Gauss}}
 =
-\operatorname{VaR}_{t,\alpha}^{\mathrm{Gauss}}
+\mathrm{VaR}_{t,\alpha}^{\mathrm{Gauss}}
 =
 -\widehat{\mu}_{p,t}
 +
@@ -259,7 +259,7 @@ and
 ```math
 e_{t,\alpha}^{\mathrm{Gauss}}
 =
-\operatorname{ES}_{t,\alpha}^{\mathrm{Gauss}}
+\mathrm{ES}_{t,\alpha}^{\mathrm{Gauss}}
 =
 -\widehat{\mu}_{p,t}
 +
@@ -638,7 +638,7 @@ For confidence level $\alpha$, define the exceedance indicator and nominal
 exceedance probability as
 
 ```math
-I_t=\mathbf{1}\{L_t>\operatorname{VaR}_{t,\alpha}\},
+I_t=\mathbf{1}\{L_t>\mathrm{VaR}_{t,\alpha}\},
 \qquad p=1-\alpha.
 ```
 
@@ -669,7 +669,7 @@ rate.
 Under the binomial reference model,
 
 ```math
-X\sim\operatorname{Binomial}(T,\pi),
+X\sim\mathrm{Binomial}(T,\pi),
 ```
 
 where $\pi$ is the unknown true exceedance probability. Each observed
@@ -930,9 +930,9 @@ than the frequency of VaR exceedances. For model confidence level $\alpha$,
 write the forecast VaR and Expected Shortfall as
 
 ```math
-q_{t,\alpha}=\operatorname{VaR}_{t,\alpha},
+q_{t,\alpha}=\mathrm{VaR}_{t,\alpha},
 \qquad
-e_{t,\alpha}=\operatorname{ES}_{t,\alpha}.
+e_{t,\alpha}=\mathrm{ES}_{t,\alpha}.
 ```
 
 For an upper-tail loss distribution, an internally consistent forecast pair
@@ -1016,7 +1016,7 @@ The median VaR excess is
 ```math
 \widetilde{D}^{\mathrm{VaR}}_{\alpha}
 =
-\operatorname{median}
+\mathrm{median}
 \left\{
 D^{\mathrm{VaR}}_{t,\alpha}:
 t\in\mathcal{B}_{\alpha}
@@ -1184,7 +1184,7 @@ the matching positive and negative autocovariance lags. The estimated variance
 and standard error of the sample mean are
 
 ```math
-\widehat{\operatorname{Var}}_{\mathrm{HAC}}
+\widehat{\mathrm{Var}}_{\mathrm{HAC}}
 \left(\overline{Z}_{\alpha}\right)
 =
 \frac{\widehat{\Omega}_{\alpha}}{T},
@@ -1193,7 +1193,7 @@ and standard error of the sample mean are
 and
 
 ```math
-\operatorname{SE}_{\mathrm{HAC}}
+\mathrm{SE}_{\mathrm{HAC}}
 \left(\overline{Z}_{\alpha}\right)
 =
 \sqrt{
@@ -1224,7 +1224,7 @@ T_{\mathrm{HAC},\alpha}
 \frac{
 \overline{Z}_{\alpha}
 }{
-\operatorname{SE}_{\mathrm{HAC}}
+\mathrm{SE}_{\mathrm{HAC}}
 (\overline{Z}_{\alpha})
 }.
 ```
@@ -1601,14 +1601,14 @@ the estimated long-run variance is
 The HAC standard error of the mean and the DM statistic are
 
 ```math
-\operatorname{SE}_{\mathrm{HAC}}(\overline d)
+\mathrm{SE}_{\mathrm{HAC}}(\overline d)
 =
 \sqrt{\frac{\widehat\Omega_d}{T}},
 \qquad
 DM_{A,B}
 =
 \frac{\overline d_{A,B}}
-{\operatorname{SE}_{\mathrm{HAC}}(\overline d_{A,B})}.
+{\mathrm{SE}_{\mathrm{HAC}}(\overline d_{A,B})}.
 ```
 
 Under the null and the large-sample approximation, the statistic is compared
@@ -1652,7 +1652,7 @@ For example, suppose the ordered comparison is model $A$ minus model $B$ and
 ```math
 \overline d_{A,B}=-0.00010,
 \qquad
-\operatorname{SE}_{\mathrm{HAC}}(\overline d_{A,B})=0.00004.
+\mathrm{SE}_{\mathrm{HAC}}(\overline d_{A,B})=0.00004.
 ```
 
 Then
@@ -1869,7 +1869,7 @@ where the unchanged strict exception rule is
 ```math
 I_{m,t,\alpha}
 =
-\mathbf{1}\{L_t>\operatorname{VaR}_{m,t,\alpha}\}.
+\mathbf{1}\{L_t>\mathrm{VaR}_{m,t,\alpha}\}.
 ```
 
 Under correct unconditional coverage, the nominal exception probability is
@@ -2013,7 +2013,7 @@ sample size $n_{\mathrm{ref}}$, define
 ```math
 X_{\mathrm{ref},\alpha}
 \sim
-\operatorname{Binomial}
+\mathrm{Binomial}
 \left(n_{\mathrm{ref}},p_\alpha\right).
 ```
 
