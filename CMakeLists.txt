@@ -1,2 +1,0 @@
-# CMake configuration will be added in a later setup task.
-

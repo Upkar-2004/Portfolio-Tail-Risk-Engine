@@ -41,9 +41,10 @@ data/processed/
 data/portfolio/
 data/backtests/
 data/evaluations/
+data/synthetic/
 
-# Generated reports
-reports/tables/
+# Private research and learning notes
+personal-notes/
 
 # Editor and operating-system files
 .vscode/

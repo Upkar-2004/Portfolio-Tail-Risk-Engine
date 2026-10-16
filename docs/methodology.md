@@ -10,11 +10,14 @@ The primary research question is:
 
 This is a neutral comparison. No model is assumed to perform better before the out-of-sample evidence is evaluated.
 
-The primary risk horizon is one trading day. All models will ultimately be compared using the same portfolio, realized losses, valid forecast dates, and evaluation rules.
+The primary risk horizon is one trading day. All baseline models are compared
+using the same portfolio, realized losses, valid forecast dates, and evaluation
+rules.
 
 ## 2. Price and return convention
 
-The project will use adjusted daily closing-price information according to the policy in `docs/data-sources.md`.
+The project uses adjusted daily closing-price information according to the
+policy in `docs/data-sources.md`.
 
 Let $P^{\mathrm{adj}}_{i,t}$ denote the adjusted closing price of asset $i$ for trading session $t$. Its one-day simple return is
 
@@ -32,7 +35,8 @@ The two prices must correspond to consecutive valid trading sessions. If either 
 
 ## 3. Why simple returns are primary
 
-Simple returns will be the primary convention because they combine directly across assets in a linear portfolio.
+Simple returns are the primary convention because they combine directly across
+assets in a linear portfolio.
 
 Let $w_{i,t-1}$ denote the weight of asset $i$ established before the return for session $t$ is realized. The portfolio return is
 
@@ -58,7 +62,10 @@ r_{i,t}
 \ln(1+R_{i,t}).
 ```
 
-Log returns add across consecutive time periods, which can be useful for exploratory analysis. However, weighted asset log returns do not directly equal the return of a rebalanced linear portfolio. Log returns will therefore not be the primary convention for portfolio P&L, VaR, or Expected Shortfall.
+Log returns add across consecutive time periods, which can be useful for
+exploratory analysis. However, weighted asset log returns do not directly equal
+the return of a rebalanced linear portfolio. Log returns are therefore not the
+primary convention for portfolio P&L, VaR, or Expected Shortfall.
 
 ### 3.1 Baseline portfolio specification
 
@@ -70,7 +77,9 @@ w_i = \frac{1}{11}.
 
 The portfolio is rebalanced to equal target weights after the final trading session of each month. The resulting weights apply beginning with the following trading session. Between rebalancing dates, asset quantities remain fixed and portfolio weights drift as asset prices change.
 
-The baseline portfolio has an initial value of USD 1,000,000 and no cash allocation. Transaction costs are initially assumed to be zero. Portfolio turnover will be retained so transaction costs can be added as a robustness extension.
+The baseline portfolio has an initial value of USD 1,000,000 and no cash
+allocation. Transaction costs are zero in the baseline. Portfolio turnover is
+retained so transaction costs can be added as a robustness extension.
 
 Monthly rebalancing is intended to provide realistic portfolio dynamics while keeping the portfolio rule independent of the risk models being compared.
 
@@ -132,7 +141,9 @@ Under this convention:
 - VaR and Expected Shortfall are reported as positive loss proportions when
   the forecasted tail lies below zero portfolio return.
 
-A portfolio return will initially be considered unavailable if any return required for a held asset is unavailable. Any later exception must be economically justified and documented.
+A portfolio return is considered unavailable if any return required for a held
+asset is unavailable. Any later exception must be economically justified and
+documented.
 
 ## 5. Forecast timing and information set
 
@@ -605,9 +616,9 @@ equal to that VaR threshold. Covariance matrices used for whitening and
 rescaling must be finite, symmetric, and numerically positive definite so a
 stable Cholesky factor exists.
 
-## 7. Planned model comparison
+## 7. Baseline model comparison
 
-The models will be developed and evaluated in the following order:
+The baseline models were developed and evaluated in the following order:
 
 1. Rolling Gaussian model using a sample covariance matrix.
 2. EWMA Gaussian model using a time-varying covariance estimate.
@@ -615,17 +626,21 @@ The models will be developed and evaluated in the following order:
 
 The rolling Gaussian model provides the benchmark.
 
-Comparing the EWMA Gaussian model with the rolling Gaussian model will help examine the effect of changing volatility while retaining a Gaussian assumption.
+Comparing the EWMA Gaussian model with the rolling Gaussian model examines the
+effect of changing volatility while retaining a Gaussian assumption.
 
-Comparing filtered historical simulation with the Gaussian models will help examine the additional effect of non-Gaussian residual behaviour.
+Comparing filtered historical simulation with the Gaussian models examines the
+additional effect of non-Gaussian residual behaviour.
 
-Greater complexity will not be treated as evidence of better performance. Calibration must be assessed from the out-of-sample results.
+Greater complexity is not treated as evidence of better performance.
+Calibration is assessed from the out-of-sample results.
 
 ## 8. Evaluation principles
 
-All models will use matching forecast dates and the same realized portfolio losses.
+All baseline models use matching forecast dates and the same realized portfolio
+losses.
 
-VaR evaluation will consider both:
+VaR evaluation considers both:
 
 - whether the number of exceedances is consistent with the selected confidence level; and
 - whether exceedances appear independently through time rather than clustering.
@@ -2113,11 +2128,18 @@ period-definition rules and sparse-tail flags, and stores a SHA-256 checksum
 for every table and figure. New runs create new versioned directories without
 overwriting earlier subperiod snapshots.
 
-## 9. Decisions still to be finalized
+## 9. Baseline status and future protocol decisions
 
-The following choices remain open and must be documented before the relevant experiments begin:
+The baseline protocol described above is complete and frozen for the reported
+2012–2025 comparison. Raw missing prices are preserved, one-session returns are
+never implicitly filled, and portfolio construction requires a complete return
+vector for every held asset. The retained baseline retrieval contained no
+missing adjusted-close observations, so no imputation or partial-portfolio rule
+affected the reported baseline results.
 
-- missing-data exclusion rules;
-- the detailed DQ-test regressors and lag count.
+The Dynamic Quantile test is not part of the completed baseline statistical
+protocol. If it is added as a later research extension, its regressors, lag
+count, eligibility rules, and multiple-testing family must be declared before
+its results are calculated.
 
 Material changes to these conventions will be recorded in `docs/decisions.md`.
