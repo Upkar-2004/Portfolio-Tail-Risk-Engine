@@ -110,7 +110,7 @@ p-values.
 ### Decision
 
 - Define an exceedance by the strict rule
-  $I_t=\mathbf{1}\{L_t>\operatorname{VaR}_{t,\alpha}\}$. Equality is not an
+  $I_t=\mathbf{1}\{L_t>\mathrm{VaR}_{t,\alpha}\}$. Equality is not an
   exceedance.
 - Use nominal exceedance probability $p=1-\alpha$ and state the Kupiec null as
   $H_0:\Pr(I_t=1)=p$, which concerns the unknown breach probability rather
@@ -160,7 +160,7 @@ tail summaries and later formal joint VaR-ES inference.
 
 - Define the tail sample for each model-confidence pair using the existing
   strict VaR exceedance rule
-  $I_{t,\alpha}=\mathbf{1}\{L_t>\operatorname{VaR}_{t,\alpha}\}$.
+  $I_{t,\alpha}=\mathbf{1}\{L_t>\mathrm{VaR}_{t,\alpha}\}$.
 - Require every Expected Shortfall forecast to be finite and at least as large
   as its corresponding VaR forecast. Allow an absolute numerical tolerance of
   $10^{-12}$ in portfolio-loss units for insignificant floating-point error.
