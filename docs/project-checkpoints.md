@@ -1,14 +1,13 @@
 # Project Checkpoints
 
-Last updated: 2026-10-14
+Last updated: 2026-10-16
 
 This checklist tracks the research, learning, and engineering progress of the Portfolio Tail-Risk Engine. A checkpoint is marked complete only when the relevant implementation or decision is documented, tested where applicable, and committed.
 
-**Current phase:** Statistical evaluation and uncertainty quantification
+**Current phase:** Results visualization and interpretation
 
-**Next checkpoint:** Implement and validate the predeclared descriptive
-subperiod coverage table without changing the completed full-sample
-comparison protocol.
+**Next checkpoint:** Build the concise publication-facing results summary and
+GitHub figure gallery without changing the completed statistical protocol.
 
 ## 1. Project definition and research scope
 
@@ -251,26 +250,39 @@ comparison protocol.
   and the predictive-accuracy CSV SHA-256 is
   `955d38d4e7659d96981bd2e535d3a50a70e7c937cbed59b03b425bdad79e795c`.
 - [x] Create and visually verify the confidence-level-faceted subperiod VaR
-  exception-rate heatmap. The official figure snapshot is
+  exception-rate heatmap. The initial figure snapshot is
   `20261014T192324342907Z_baseline_11_asset_subperiod_exception_rate_figure`;
   its 300-DPI PNG SHA-256 is
   `092aa43a56d9066d60509e65a1f8c8c2d2423b53672903416d7d440ffda14c62`
   and its SVG SHA-256 is
   `f36f073583105f8a8400917d0519fd015f1c0957b6b1f30cb810f64eee058f6d`.
 - [x] Create and visually verify the observed exception-rate figure with
-  pointwise 95% Clopper-Pearson exact intervals. The combined official figure
+  pointwise 95% Clopper-Pearson exact intervals. The current house-style figure
   snapshot is
-  `20261015T164322450827Z_baseline_11_asset_subperiod_exception_rate_figures`.
+  `20261016T150151101497Z_baseline_11_asset_subperiod_exception_rate_figures`.
   The exact-interval figure's 300-DPI PNG SHA-256 is
-  `ba3fa2235e9752f23d6e631402e4d89aa8f8af9aa6d7db21e75704a999d0f188`
+  `902942e86679e0cf06a2a81a8d6de29ab3d174ecd8bfd4d8c74d161ee38f6710`
   and its SVG SHA-256 is
-  `a0471beabac697d1e51b0402d022a18faebd48d620c46184bebc9319fbe29894`.
-  The regenerated heatmap PNG SHA-256 is
-  `092aa43a56d9066d60509e65a1f8c8c2d2423b53672903416d7d440ffda14c62`
+  `a576484abc6c81052c8a81a1156a1e1a6ce378e88475402a017d8f03a7554102`.
+  The house-style heatmap PNG SHA-256 is
+  `5958d864ec8b4e9cdd8e65cc961bf02e1e090f878953c3afac71e0260a25aca6`
   and its SVG SHA-256 is
-  `70ecea02d85c5f84955775565eb974705a246fd8fd0d29e2607b8da4b13c13d1`.
-- [ ] Create the subperiod predictive-score rank heatmaps.
-- [ ] Create and visually verify the professional subperiod figures.
+  `ded741ad06b92c6a73b86d0eb15f29723fa9dab10e9ede7f33f774e2c5347424`.
+- [x] Split the predictive-score display into a main first-place summary and a
+  supporting annual rank grid, then generate the 135-row companion score
+  table. The current house-style snapshot is
+  `20261016T155533505550Z_baseline_11_asset_subperiod_predictive_score_figures`.
+  The summary PNG and SVG SHA-256 values are
+  `7e67cf06bb0c626b0dfe0a11ec4c2d15519b29f17c10227ebbf1312a7c4bca3e`
+  and
+  `9503da42108aa65b8fe1f6a2ea57fe0b927f5dc4b2636ccd5e84e23f55c49943`.
+  The annual-grid PNG and SVG SHA-256 values are
+  `68d4cebc200c4a46df38652ac6d526868169f231fbbdbc27e056c1f70810f018`
+  and
+  `848e99abf35a1548ebe6faf63d832d4af660800b23b5d76d5153f2d90554b082`.
+  The companion-table SHA-256 is
+  `ed7940aae0066a47cfd9b36773cf100e1ccf2a8a2899343b282b82dbd6f81775`.
+- [x] Create and visually verify the professional subperiod figures.
 
 ## 13. C++ numerical simulation core
 

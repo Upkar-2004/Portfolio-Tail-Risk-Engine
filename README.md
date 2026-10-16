@@ -245,3 +245,41 @@ separate from the calendar-year panels. These displays are descriptive; their
 pointwise intervals are not simultaneous or multiplicity-adjusted, the
 reference ranges are not new decision rules, and neither figure replaces the
 primary full-sample tests.
+
+Generate the main predictive-score summary, supporting annual rank grid, and
+companion score table from the same verified snapshot:
+
+```bash
+.venv/bin/python scripts/report_subperiod_predictive_scores.py \
+  data/evaluations/20261014T170317535380Z_baseline_11_asset_subperiod_analysis
+```
+
+The command checksum-verifies `subperiod_predictive_accuracy.csv`, creates a
+new immutable report directory with traced checksums, and refreshes these
+stable publication files:
+
+- `reports/figures/subperiod_predictive_first_place_summary.png` and `.svg`;
+- `reports/figures/subperiod_predictive_annual_ranks.png` and `.svg`; and
+- `reports/tables/subperiod_predictive_scores.csv`.
+
+The main-text summary plots calendar-year first-place counts for QL and FZ0 by
+confidence level. The dashed 14/3 line is an even-split visual reference, not a
+test. The supporting grid groups confidence levels within QL and FZ0, colors
+rank-one cells with the winning model's house color, and preserves the separate
+February-April 2020 stress strip. The companion table reports all period-average
+score magnitudes and ranks. No subperiod Diebold-Mariano statistics or
+significance decisions are added.
+
+The immutable report directory also stores an unchanged checksum-matching copy
+of `subperiod_predictive_accuracy.csv` beside the figures, companion table, and
+metadata. The tracked publication files remain generated outputs and must not
+be edited by hand.
+
+### Figure house style
+
+Shared model identities, colors, markers, typography, semantic palettes, and
+plotting helpers live in `python/tailrisk/style.py`. Production visualization
+code imports those definitions instead of maintaining separate copies. The
+module supports a paper genre and a report genre, plus a local style context so
+figure settings do not leak between tests or report commands. Its behavioral
+guards live in `tests/python/test_style.py`.

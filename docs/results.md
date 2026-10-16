@@ -157,3 +157,83 @@ treats the exception probability as constant within a period and does not
 model serial dependence. Accordingly, the figure is a research-quality
 descriptive diagnostic, not a replacement for the project's primary
 full-sample calibration tests and multiplicity-adjusted conclusions.
+
+## Subperiod predictive-score summary and annual ranks
+
+### Question
+
+Which model produced the lowest period-average VaR quantile loss, and which
+produced the lowest joint VaR-Expected-Shortfall FZ0 loss? Did the answer
+change through time or across confidence levels?
+
+Exception counts alone cannot answer this question. Daily forecast errors can
+offset one another: a model may be too conservative on some sessions and too
+aggressive on others while still producing an annual exception count close to
+its target. The two scoring rules use every forecast session and reward the
+forecast functional they were designed to evaluate.
+
+### How to read the figures and companion table
+
+The main-text figure plots the number of calendar years in which each model
+ranked first at 95%, 97.5%, and 99%. Its left panel covers QL and its right
+panel covers FZ0. The dashed line at (14/3) represents an even split of 14
+calendar years across three models and is a visual reference only. The
+overlapping 62-session February-April 2020 NBER result is stated separately and
+is excluded from the annual counts.
+
+The supporting grid supplies the year-by-year detail. Its QL half contains the
+95%, 97.5%, and 99% blocks on the left, and its FZ0 half contains the same
+sequence on the right. Rank 1 denotes the lowest mean score, rank 2 the middle
+score, and rank 3 the highest score. Rank-one cells use the winning model's
+house color; ranks two and three remain gray text on white. The generated
+companion CSV reports the corresponding period-average score magnitudes and
+ranks. RG denotes Rolling Gaussian, EWMA denotes EWMA Gaussian, and FHS denotes
+Filtered Historical Simulation.
+
+The FZ0 calculation uses the project's positive-loss convention: Expected
+Shortfall is at least as large as VaR. FZ0 scores may be negative, but lower
+scores remain better when models are evaluated on the same sessions,
+confidence level, and units.
+
+### Main finding
+
+The descriptive ranking changes with the forecast target. EWMA Gaussian most
+frequently ranked first for VaR quantile loss at 95% and 97.5%, attaining the
+lowest annual mean in 10 of 14 years at each level. At 99%, FHS led in 7 years,
+compared with 5 for EWMA and 2 for Rolling Gaussian.
+
+For the joint VaR-Expected-Shortfall FZ0 score, FHS led more frequently as the
+confidence level increased: 7 of 14 years at 95%, 8 at 97.5%, and 10 at 99%.
+Rolling Gaussian ranked last in 12 of 14 years for quantile loss at every
+confidence level. It also ranked last in 12 years for FZ0 at 95% and 97.5% and
+in 9 years at 99%.
+
+During the February-April 2020 contraction, FHS ranked first, EWMA second, and
+Rolling Gaussian third for both score families at all three confidence levels.
+This is a consistent stress-period pattern, but it is based on only 62
+sessions.
+
+### Connection to the formal evidence
+
+The annual rank counts do not establish that EWMA and FHS have different
+expected predictive accuracy. In the full-sample Holm-adjusted
+Diebold-Mariano analysis, EWMA and FHS were not significantly different for
+either score family at any confidence level. The formal results more clearly
+support the conclusion that the adaptive models outperformed Rolling Gaussian
+for selected score-confidence combinations.
+
+One possible explanation for the descriptive FHS pattern is that its filtered
+empirical residual distribution preserves non-Gaussian tail features that the
+Gaussian innovation assumptions do not. However, FZ0 evaluates VaR and
+Expected Shortfall jointly, so the ranking cannot identify Expected Shortfall
+or distributional tail shape as the cause. That mechanism remains a research
+hypothesis rather than a demonstrated result.
+
+### Important limitation
+
+The figures encode ordinal ranks or first-place counts, not confidence
+intervals or p-values. The companion table supplies score magnitudes, but a
+change from rank 1 to rank 2 may still reflect a very small difference. No
+subperiod Diebold-Mariano statistics were calculated, and the line positions
+and cell colors must not be interpreted as local significance decisions. Formal
+inference remains the completed full-sample, multiplicity-adjusted comparison.

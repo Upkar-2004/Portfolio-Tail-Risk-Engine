@@ -313,6 +313,11 @@ def save_subperiod_exception_rate_report(
             "inferential_status": (
                 "descriptive_only; no visual pass/fail rule"
             ),
+            "typography": {
+                "preferred_font": "Helvetica",
+                "fallback_fonts": ["Arial", "DejaVu Sans"],
+                "house_style": "tail_risk_publication",
+            },
             "sparse_tail_warning": (
                 "Large deviations can arise from small expected "
                 "or observed exception counts, especially at 99% "

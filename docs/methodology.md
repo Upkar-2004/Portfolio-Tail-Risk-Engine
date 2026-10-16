@@ -2075,8 +2075,37 @@ The figure states that the intervals are non-simultaneous and
 non-multiplicity-adjusted; it therefore supplies uncertainty context without
 creating an additional visual pass-or-fail rule.
 
-The remaining planned figures are predictive-score rank heatmaps. Their
-designs likewise follow only from the validated tables.
+The predictive-score results are separated into a main-text summary and a
+supporting annual grid. The main figure contains side-by-side QL and FZ0 panels.
+Each panel plots the number of calendar years in which Rolling Gaussian, EWMA,
+or FHS achieved the lowest period-average score at 95%, 97.5%, and 99%. The
+February-April 2020 NBER period is excluded from those 14-year totals and its
+all-level FHS result is stated separately. A faint line at (14/3) shows the
+count implied by an even three-model split. It is a visual reference, not an
+inferential threshold or null expectation.
+
+The supporting grid groups results by score family first: all three QL
+confidence levels appear on the left and all three FZ0 levels on the right.
+Calendar years 2012-2025 occupy the main rows, while the overlapping
+February-April 2020 NBER period remains a separate stress strip. Every cell
+prints its saved minimum rank from one through three. Rank-one cells use the
+winning model's fixed house color; ranks two and three remain gray text on
+white. This preserves annual transparency while making the main EWMA-versus-FHS
+pattern easier to see.
+
+A generated companion CSV reports the period-average QL and FZ0 values and
+ranks for every period-model-confidence combination. Neither figure encodes a
+HAC-standardized statistic, p-value, or statistical significance. This avoids
+introducing unplanned subperiod Diebold-Mariano comparisons after observing the
+results. Formal inference remains the completed full-sample, Holm-adjusted
+Diebold-Mariano analysis.
+
+The subperiod figures use the shared definitions in `tailrisk.style` for model
+identity, publication typography, semantic colors, confidence-level ordering,
+and reusable plotting behavior. They retain the same calendar range and
+separate NBER stress strip. Helvetica is preferred for report figures, with
+Arial and DejaVu Sans as deterministic fallbacks. Raster copies are saved at
+300 DPI and SVG copies preserve the vector text and geometry.
 
 Metadata identifies the report as `descriptive_secondary_analysis`, retains
 the source-backtest snapshot identifiers and checksums, records the complete
